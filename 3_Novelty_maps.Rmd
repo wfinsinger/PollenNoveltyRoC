@@ -1,0 +1,363 @@
+---
+title: "Novelty_maps"
+author: "Walter Finsinger"
+date: "10/17/2016"
+output: html_document
+---
+
+This script makes gridded maps of novelty at time lags +500 years from baseline age for selected time slices.
+It uses output from the "EPD_Novelty_RoC.Rmd" script that is stored in the directory with the path:
+./output.dir/Novelty_Maps
+
+**NB: before running the script, change the "dir" accordingly.**
+
+Loads packages
+```{r}
+require(paleofire)
+require(gridExtra)
+require(ggplot2)
+```
+
+Create output directory where data and figures are stored
+```{r}
+
+dir = "./RoCchord_Novchord_ListFALSE_Start15000_kth1/"
+
+map.output.dir = paste(dir,"Novelty_Maps/", sep='')
+dir.create(map.output.dir)
+```
+
+Loads data
+```{r}
+Nov500lag <- read.csv(file=paste(dir,"DataOut/Nov500lag.csv", sep=''), header=T)
+```
+
+Prepares the data to be used with the paleofire package for mapping novelty500 (i.e. gridded cd for lags + 500 years)
+```{r}
+novelty500.2 = Nov500lag[ , -c(1,3:5, 8, 10:18)]
+novelty500.2 = novelty500.2[ ,c(2,3,4,1)]
+colnames(novelty500.2) = c("x", "y", "age", "char")
+```
+
+Define TS.Ages for stacked images
+```{r}
+TS.Age = seq(from=500, to=14500, by=500)
+n.TS.Age = length(TS.Age)
+end.Bin.out <- max(Nov500lag$TS.age) + 500
+```
+
+Defines parameters used for plotting maps
+```{r}
+title.size = 10
+col.class = quantile(novelty500.2$char)
+map.pal <- "YlGn"
+dist.buffer = 300000
+cell.size = 50000
+x.maplim=c(-800000, 2800000)
+y.maplim=c(3700000, 7500000)
+```
+
+Maps of Novelty 500 yrs lag: Plots Quartile maps on one page for AgeBins younger than that defined by the user-defined parameter 'end.Bin.out', which determines the youngest baseline age that had been excluded from the analysis.
+```{r}
+Map=TS.Age[1] # TS=500 cal BP
+p.map = pfGridding(novelty500.2, age=Map,
+                   distance_buffer=dist.buffer, elevation_buffer=500)
+pp.i = plot.pfGridding(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.1 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.1)
+
+pp.legend = pp.i +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="right")
+
+Map=TS.Age[2] # TS=1000 cal BP
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.2 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.2)
+
+Map=TS.Age[5] # TS = 2500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.3 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+
+Map=TS.Age[9] # TS=4500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.4 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+
+Map=TS.Age[13] # TS=6500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.5 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+
+Map=TS.Age[17] # TS = 8500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4, pp.5)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.6 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+
+Map=TS.Age[21] # TS=10500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.7 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+
+Map=TS.Age[23] # TS = 11500 cal BP
+  if(end.Bin.out - 500 < Map) {
+    pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+    grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, ncol=3, nrow=4)
+    dev.off()
+  
+    pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+    plot(pp.legend)
+    dev.off()
+    rm(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7)
+    stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+  } else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.8 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.8)
+
+Map=TS.Age[25] # TS = 12500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.9 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.9)
+
+Map=TS.Age[27] # TS = 13500 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.10 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.10)
+
+Map=TS.Age[28] # TS = 14000 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, pp.10, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, pp.10)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.11 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.11)
+
+Map=TS.Age[29] # TS = 14000 cal BP
+if(end.Bin.out - 500 < Map) {
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+  grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, pp.10, pp.11, ncol=3, nrow=4)
+  dev.off()
+  
+  pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+  plot(pp.legend)
+  dev.off()
+  rm(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, pp.10, pp.11)
+  stop(paste("Older maps cannot be plotted: oldest baseline age > next Map age (",Map,"cal BP)"), sep=NULL)
+} else { }
+p.map = pfGridding(novelty500.2, age=Map, distance_buffer=300000, elevation_buffer=500)
+pp.i = plot(x=p.map,
+            continuous=F,
+            col_class=col.class,
+            points=F,
+            xlim=x.maplim, ylim=y.maplim,
+            cpal=map.pal)
+pp.12 = pp.i + ggtitle(paste("Novelty", Map,"->",Map-500,"cal BP", sep=" ")) +
+  geom_point(data=p.map$points, aes(x=x,y=y), size = 0.5, colour="black") +
+  theme(axis.text = element_blank(), axis.title = element_blank()) +
+  theme(plot.title = element_text(size=title.size, hjust=0.5)) +
+  theme(legend.position="none")
+plot(pp.12)
+
+
+pdf(file.path(map.output.dir, "Novelty_Maps_quartiles.pdf"))
+grid.arrange(pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, pp.10, pp.11, pp.12, ncol=3, nrow=4)
+dev.off()
+
+pdf(file.path(map.output.dir, "Novelty_Maps_quartiles_Legend.pdf"))
+plot(pp.legend)
+dev.off()
+
+rm(pp.i, p.map, pp.1, pp.2, pp.3, pp.4, pp.5, pp.6, pp.7, pp.8, pp.9, pp.10, pp.11, pp.12, pp.legend)
+```
