@@ -1,0 +1,240 @@
+---
+title: "6_Compare_kth"
+author: "Walter Finsinger"
+date: "11/18/2016"
+output: html_document
+---
+
+
+```{r}
+## Compares outputs of "RoCchord_Novchord_ListFALSE_Start15000_kth..."
+rm(list = ls())
+
+dir.name = "NovChord_Compare_kth_out/"
+output.dir <- file.path(".",dir.name)
+dir.create(output.dir)
+```
+
+## Loads datafiles ####
+```{r}
+Close.all1 <- read.csv(file="./RoCchord_Novchord_ListFALSE_Start15000_kth1/All_closest_analogs.csv", header=TRUE)
+Close.all2 <- read.csv(file="./RoCchord_Novchord_ListFALSE_Start15000_kth2/All_closest_analogs.csv", header=TRUE)
+Close.all3 <- read.csv(file="./RoCchord_Novchord_ListFALSE_Start15000_kth3/All_closest_analogs.csv", header=TRUE)
+```
+
+## Defines some variables ####
+```{r}
+Age.diff <- Close.all1$TS.age - Close.all1$FS.age
+TS.Age <- Close.all1$TS.age
+```
+
+## Calculates difference between cma and km distances among all i and j pairs ####
+```{r}
+cam1 <- Close.all1$cma_dist
+cam2 <- Close.all2$cma_dist
+cam3 <- Close.all3$cma_dist
+
+cam <- data.frame(TS.Age, Age.diff, cam1, cam2, cam3)
+
+rm(cam1, cam2, cam3)
+
+cam$cam1_2 <- cam$cam2 - cam$cam1
+cam$cam1_3 <- cam$cam3 - cam$cam1
+
+km1 <- Close.all1$km
+km2 <- Close.all2$km
+km3 <- Close.all3$km
+
+km <- data.frame(TS.Age, Age.diff, km1, km2, km3)
+
+km$km1_2 <- km$km2 - km$km1
+km$km1_3 <- km$km3 - km$km1
+
+rm(TS.Age, Age.diff, km1, km2, km3, Close.all1, Close.all2, Close.all3)
+```
+
+## Makes boxplots ####
+```{r}
+pdf(file.path(output.dir, "CD Diff to kth ClosestAnalogue_AgeDiff500yr.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(cam1 ~ TS.Age, data=cam, subset=Age.diff == 500, xaxt="n",
+        main="CD difference kth closest analogs (Age.diff = 500)", ylab="CD 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(cam1_2 ~ TS.Age, data=cam, subset=Age.diff == 500, xaxt="n",
+        ylab="CD 2nd - CD 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(cam1_3 ~ TS.Age, data=cam, subset=Age.diff == 500, ylab="CD 3rd - CD 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+mtext("Baseline age (cal BP)", side=1, line=2.5, cex=0.8)
+dev.off()
+
+
+pdf(file.path(output.dir, "CD Diff to kth ClosestAnalogue_AgeDiff3000yr.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(cam1 ~ TS.Age, data=cam, subset=Age.diff == 3000, xaxt="n",
+        main="CD difference kth closest analogs (Age.diff = 3000)", ylab="CD to 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+boxplot(cam1_2 ~ TS.Age, data=cam, subset=Age.diff == 3000, xaxt="n",
+        ylab="CD 2nd - CD 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(cam1_3 ~ TS.Age, data=cam, subset=Age.diff == 3000, ylab="CD 3rd - CD 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+mtext("Age (cal BP)", side=1, line=2.5, cex=0.8)
+dev.off()
+
+
+
+pdf(file.path(output.dir, "Km to kth ClosestAnalogue_AgeDiff500yr_2.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(km1 ~ TS.Age, data=km, subset=Age.diff == 500, xaxt="n",
+        main="500 years lag", ylab="km to kth=1", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km2 ~ TS.Age, data=km, subset=Age.diff == 500, xaxt="n",
+        ylab="km to kth=2", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km3 ~ TS.Age, data=km, subset=Age.diff == 500, ylab="km to kth=3", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+mtext("Age (cal BP)", side=1, line=2.5, cex=0.8)
+dev.off()
+
+
+
+pdf(file.path(output.dir, "Km Diff to kth ClosestAnalogue_AgeDiff500yr.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(km1 ~ TS.Age, data=km, subset=Age.diff == 500, xaxt="n",
+        main="Km difference kth closest analogs (Age.diff = 500)", ylab="km 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km1_2 ~ TS.Age, data=km, subset=Age.diff == 500, xaxt="n",
+        ylab="km 2nd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+boxplot(km1_3 ~ TS.Age, data=km, subset=Age.diff == 500, ylab="km 3rd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+mtext("Age (cal BP)", side=1, line=2.5, cex=0.8)
+dev.off()
+
+
+dat1 <- km[which(km$Age.diff == 500), ]
+dat2 <- km[which(km$Age.diff == 500 & km$km2 > 0), ]
+dat3 <- km[which(km$Age.diff == 500 & km$km3 > 0), ]
+pdf(file.path(output.dir, "Km Diff to kth ClosestAnalogue_AgeDiff500yr_excl0km.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(km1 ~ TS.Age, data=dat1, xaxt="n",
+        main="Km difference kth closest analogs (Age.diff = 500)", ylab="km 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+boxplot(km1_2 ~ TS.Age, data=dat2, xaxt="n",
+        ylab="km 2nd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+boxplot(km1_3 ~ TS.Age, data=dat3, ylab="km 3rd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+mtext("Age (cal BP)", side=1, line=2.5, cex=0.8)
+dev.off()
+
+
+
+
+pdf(file.path(output.dir, "Figure_S5_Km to kth ClosestAnalogue_AgeDiff3000yr_2.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(km1 ~ TS.Age, data=km, subset=Age.diff == 3000, xaxt="n",
+        main="3000 years lag", ylab="km to closest\nanalogue (kth=1)", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km2 ~ TS.Age, data=km, subset=Age.diff == 3000, xaxt="n",
+        ylab="km to close\nanalogue (kth=2)", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km3 ~ TS.Age, data=km, subset=Age.diff == 3000, ylab="km to close\nanalogue (kth=3)", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+mtext("Baseline age (cal BP)", side=1, line=2.5, cex=0.9)
+dev.off()
+
+
+pdf(file.path(output.dir, "Figure_S3_Km Diff to kth ClosestAnalogue_AgeDiff3000yr.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(km1 ~ TS.Age, data=km, subset=Age.diff == 3000, xaxt="n",
+        main="Km difference kth closest analogs (Age.diff = 3000)", ylab="km to 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km1_2 ~ TS.Age, data=km, subset=Age.diff == 3000, xaxt="n",
+        ylab="km to 2nd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+boxplot(km1_3 ~ TS.Age, data=km, subset=Age.diff == 3000, ylab="km to 3rd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+mtext("Baseline age (cal BP)", side=1, line=2.5, cex=0.9)
+dev.off()
+
+
+dat1 <- km[which(km$Age.diff == 3000), ]
+dat2 <- km[which(km$Age.diff == 3000 & km$km2 > 0), ]
+dat3 <- km[which(km$Age.diff == 3000 & km$km3 > 0), ]
+pdf(file.path(output.dir, "Km Diff to kth ClosestAnalogue_AgeDiff3000yr_excl0km.pdf"))
+par(mfrow=c(3,1), mar=c(0,5,1,1), oma=c(5,1,1,1), cex=0.8)
+boxplot(km1 ~ TS.Age, data=dat1, xaxt="n",
+        main="Km difference kth closest analogs (Age.diff = 3000)", ylab="km 1st", frame.plot=F, varwidth=T)
+#abline(h = 0, col="grey")
+boxplot(km1_2 ~ TS.Age, data=dat2, xaxt="n",
+        ylab="km 2nd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+boxplot(km1_3 ~ TS.Age, data=dat3, ylab="km 3rd - 1st", frame.plot=F, varwidth=T)
+abline(h = 0, col="grey")
+mtext("Age (cal BP)", side=1, line=2.5, cex=0.8)
+dev.off()
+```
+
+
+## Line plots ####
+```{r}
+Age_diff <- seq(0, 15000, 500)
+km1.med <- aggregate(km$km1, by=list(TS.Age=km$TS.Age, Age.diff=km$Age.diff), median)
+km1.sd <- aggregate(km$km1, by=list(TS.Age=km$TS.Age, Age.diff=km$Age.diff), sd)
+
+km2.med <- aggregate(km$km2, by=list(TS.Age=km$TS.Age, Age.diff=km$Age.diff), median)
+km2.sd <- aggregate(km$km2, by=list(TS.Age=km$TS.Age, Age.diff=km$Age.diff), sd)
+
+km3.med <- aggregate(km$km3, by=list(TS.Age=km$TS.Age, Age.diff=km$Age.diff), median)
+km3.sd <- aggregate(km$km3, by=list(TS.Age=km$TS.Age, Age.diff=km$Age.diff), sd)
+
+
+## Median km to close analogue after 500 years
+km1.med500 <- km1.med[which(km1.med$Age.diff == 500), ]
+km2.med500 <- km2.med[which(km2.med$Age.diff == 500), ]
+km3.med500 <- km3.med[which(km3.med$Age.diff == 500), ]
+
+
+pdf(file.path(output.dir, "Figure_S4a_Median_km_ClosestAnalogue_AgeDiff500yr.pdf"))
+par(mfrow=c(1,1), mar=c(0,5,1,1), oma=c(5,0,0,0), cex=0.8, cex.lab=1)
+x.lim <- c(15000, 0)
+y.lim <- c(0, 500)
+plot(km1.med500$TS.Age-250, km1.med500$x, type="s", ylim=y.lim, xlim=x.lim, axes=F,
+     ylab="Median km to kth\nclose analogue", xlab="Baseline age (cal BP)", main="500 year lag")
+axis(1, at=seq(15000, 0, -500))
+axis(2)
+lines(km2.med500$TS.Age-250, km2.med500$x, type="s", col="red")
+lines(km3.med500$TS.Age-250, km3.med500$x, type="s", col="blue")
+abline(v = c(14642, 12846, 11653))
+legend(x="topright", legend=c("kth=1", "kth=2", "kth=3"),
+       text.col=c("black", "red", "blue"),
+       bty="n", horiz=F)
+mtext("Baseline age (cal BP)", side=1, line=2.5, cex=0.9)
+dev.off()
+
+
+## Median km to close analogue after 3000 years
+km1.med3000 <- km1.med[which(km1.med$Age.diff == 3000), ]
+km2.med3000 <- km2.med[which(km2.med$Age.diff == 3000), ]
+km3.med3000 <- km3.med[which(km3.med$Age.diff == 3000), ]
+
+pdf(file.path(output.dir, "Figure_S4b_Median_km_ClosestAnalogue_AgeDiff3000yr.pdf"))
+par(mfrow=c(1,1), mar=c(0,5,1,1), oma=c(5,0,0,0), cex=0.8, cex.lab=1)
+x.lim <- c(15000, 0)
+y.lim <- c(0, 1300)
+plot(km1.med3000$TS.Age-250, km1.med3000$x, type="s", ylim=y.lim, xlim=x.lim, axes=F,
+     ylab="Median km to kth\nclose analogue", xlab="Baseline age (cal BP)", main="3000 years lag")
+axis(1, at=seq(15000, 0, -500))
+axis(2)
+lines(km2.med3000$TS.Age-250, km2.med3000$x, type="s", col="red")
+lines(km3.med3000$TS.Age-250, km3.med3000$x, type="s", col="blue")
+abline(v = c(14642, 12846, 11653))
+legend(x="topright", legend=c("kth=1", "kth=2", "kth=3"),
+       text.col=c("black", "red", "blue"),
+       bty="n", horiz=F)
+mtext("Baseline age (cal BP)", side=1, line=2.5, cex=0.9)
+dev.off()
+
+```
