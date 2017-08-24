@@ -1,0 +1,186 @@
+---
+title: "Mixed Effect Model Output"
+author: "Simon Brewer"
+date: "10/9/2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Model 1 RoC Pre 8K
+```{r echo=FALSE, message=FALSE}
+require(nlme)
+require(knitr)
+require(ggplot2)
+mydf = data.frame(Intercept.FE = rep(NA, 4),
+                  d18O.FE = rep(NA, 4),
+                  WithinSite = rep(NA, 4),
+                  BetweenSite = rep(NA, 4))
+
+rownames(mydf) = c("RoCPre8K","RoCPost8K","NovPre8K","NovPost8K")
+
+## ROC
+load("RoC_Pre8K.RData")
+mydf$Intercept.FE[1] = fixed.effects(scd.fit3)[1]
+mydf$d18O.FE[1] = fixed.effects(scd.fit3)[2]
+sumvar = sum(as.numeric(VarCorr(scd.fit3)[,1]))
+mydf$WithinSite[1] = as.numeric(VarCorr(scd.fit3)[2,1])/sumvar*100
+mydf$BetweenSite[1] = as.numeric(VarCorr(scd.fit3)[1,1])/sumvar*100
+#mydf$d18O.slope[1] = as.numeric(VarCorr(scd.fit3)[2,1])/sumvar*100
+
+## Predictions
+d18O.c.new = seq(-5,3,by=0.1)
+ent.new = sort(unique(cds.lg$ent))
+cds.lg.pred = data.frame(d18O.c = rep(d18O.c.new, length(ent.new)),
+                         ent = rep(ent.new, each=length(d18O.c.new)))
+cds.lg.pred$cds = predict(scd.fit3, cds.lg.pred)
+```
+```{r}
+summary(scd.fit3)
+```
+
+### Model 2 RoC Post 8K
+```{r echo=FALSE}
+## ROC
+load("RoC_Post8K.RData")
+mydf$Intercept.FE[2] = fixed.effects(scd.fit3)[1]
+mydf$d18O.FE[2] = fixed.effects(scd.fit3)[2]
+sumvar = sum(as.numeric(VarCorr(scd.fit3)[,1]))
+mydf$WithinSite[2] = as.numeric(VarCorr(scd.fit3)[2,1])/sumvar*100
+mydf$BetweenSite[2] = as.numeric(VarCorr(scd.fit3)[1,1])/sumvar*100
+#mydf$d18O.slope[2] = as.numeric(VarCorr(scd.fit3)[2,1])/sumvar*100
+
+## Predictions
+d18O.c.new = seq(-1.5,1,by=0.05)
+ent.new = sort(unique(cds.hol$ent))
+cds.hol.pred = data.frame(d18O.c = rep(d18O.c.new, length(ent.new)),
+                         ent = rep(ent.new, each=length(d18O.c.new)))
+cds.hol.pred$cds = predict(scd.fit3, cds.hol.pred)
+```
+```{r}
+summary(scd.fit3)
+```
+
+### Model 3 Novelty Pre 8K
+```{r echo=FALSE}
+## Novelty
+load("Nov_Pre8K.RData")
+mydf$Intercept.FE[3] = fixed.effects(nov.fit4)[1]
+mydf$d18O.FE[3] = fixed.effects(nov.fit4)[2]
+sumvar = sum(as.numeric(VarCorr(nov.fit4)[,1]))
+mydf$WithinSite[3] = as.numeric(VarCorr(nov.fit4)[2,1])/sumvar*100
+mydf$BetweenSite[3] = as.numeric(VarCorr(nov.fit4)[1,1])/sumvar*100
+#mydf$d18O.slope[3] = as.numeric(VarCorr(nov.fit4)[2,1])/sumvar*100
+
+## Predictions
+d18O.c.new = seq(-5,3,by=0.1)
+ent.new = sort(unique(nov.lg$TS.ent))
+nov.lg.pred = data.frame(d18O.c = rep(d18O.c.new, length(ent.new)),
+                         TS.ent = rep(ent.new, each=length(d18O.c.new)))
+nov.lg.pred$cds = predict(nov.fit4, nov.lg.pred)
+```
+```{r}
+summary(nov.fit4)
+```
+
+### Model 4 Novelty Post 8K
+```{r echo=FALSE}
+## Novelty
+load("Nov_Post8K.RData")
+mydf$Intercept.FE[4] = fixed.effects(nov.fit4)[1]
+mydf$d18O.FE[4] = fixed.effects(nov.fit4)[2]
+sumvar = sum(as.numeric(VarCorr(nov.fit4)[,1]))
+mydf$WithinSite[4] = as.numeric(VarCorr(nov.fit4)[2,1])/sumvar*100
+mydf$BetweenSite[4] = as.numeric(VarCorr(nov.fit4)[1,1])/sumvar*100
+#mydf$d18O.slope[4] = as.numeric(VarCorr(nov.fit4)[2,1])/sumvar*100
+
+## Predictions
+d18O.c.new = seq(-1.5,1,by=0.05)
+ent.new = sort(unique(nov.hol$TS.ent))
+nov.hol.pred = data.frame(d18O.c = rep(d18O.c.new, length(ent.new)),
+                         TS.ent = rep(ent.new, each=length(d18O.c.new)))
+nov.hol.pred$cds = predict(nov.fit4, nov.hol.pred)
+```
+
+```{r}
+summary(nov.fit4)
+```
+
+## Model table
+```{r echo=FALSE}
+kable(mydf)
+write.csv(mydf, "lme_model_results.csv")
+```
+
+## Model plots
+### Model 1 RoC Pre 8K
+```{r echo=FALSE}
+#cds.lg.pred$d18O = exp(cds.lg.pred$d18O.c + mean(cds.lg$d18O))
+#cds.lg.pred$cds2 = exp(cds.lg.pred$cds)
+cds.lg.pred$d18O = cds.lg.pred$d18O.c + mean(cds.lg$d18O)
+cds.lg.pred$cds2 = cds.lg.pred$cds
+newdf = data.frame(d18O = unique(cds.lg.pred$d18O),
+                   cds = tapply(cds.lg.pred$cds2, cds.lg.pred$d18O, mean, na.rm=TRUE),
+                   cds.lo = tapply(cds.lg.pred$cds2, cds.lg.pred$d18O, quantile, 0.025, na.rm=TRUE),
+                   cds.hi = tapply(cds.lg.pred$cds2, cds.lg.pred$d18O, quantile, 0.975, na.rm=TRUE))
+plot(cds ~ d18O, newdf, type='l', ylim=c(-2,-1),
+     xlab="log d18O Change", ylab="log RoC",
+     main="RoC vs d18O change Pre 8ka")
+lines(newdf$d18O, newdf$cds.lo, lty=2)
+lines(newdf$d18O, newdf$cds.hi, lty=2)
+```
+
+### Model 2 RoC Post 8K
+```{r echo=FALSE}
+#cds.lg.pred$d18O = exp(cds.lg.pred$d18O.c + mean(cds.lg$d18O))
+#cds.lg.pred$cds2 = exp(cds.lg.pred$cds)
+cds.hol.pred$d18O = cds.hol.pred$d18O.c + mean(cds.hol$d18O)
+cds.hol.pred$cds2 = cds.hol.pred$cds
+newdf = data.frame(d18O = unique(cds.hol.pred$d18O),
+                   cds = tapply(cds.hol.pred$cds2, cds.hol.pred$d18O, mean, na.rm=TRUE),
+                   cds.lo = tapply(cds.hol.pred$cds2, cds.hol.pred$d18O, quantile, 0.025, na.rm=TRUE),
+                   cds.hi = tapply(cds.hol.pred$cds2, cds.hol.pred$d18O, quantile, 0.975, na.rm=TRUE))
+plot(cds ~ d18O, newdf, type='l', ylim=c(-2.5,-0.5),
+     xlab="log d18O Change", ylab="log RoC",
+     main="RoC vs d18O change Post 8ka")
+lines(newdf$d18O, newdf$cds.lo, lty=2)
+lines(newdf$d18O, newdf$cds.hi, lty=2)
+```
+
+### Model 3 Nov Pre 8K
+```{r echo=FALSE}
+#nov.lg.pred$d18O = exp(nov.lg.pred$d18O.c + mean(nov.lg$d18O))
+#nov.lg.pred$cds2 = exp(nov.lg.pred$cds)
+nov.lg.pred$d18O = nov.lg.pred$d18O.c + mean(nov.lg$d18O)
+nov.lg.pred$cds2 = nov.lg.pred$cds
+newdf = data.frame(d18O = unique(nov.lg.pred$d18O),
+                   cds = tapply(nov.lg.pred$cds2, nov.lg.pred$d18O, mean, na.rm=TRUE),
+                   cds.lo = tapply(nov.lg.pred$cds2, nov.lg.pred$d18O, quantile, 0.025, na.rm=TRUE),
+                   cds.hi = tapply(nov.lg.pred$cds2, nov.lg.pred$d18O, quantile, 0.975, na.rm=TRUE))
+plot(cds ~ d18O, newdf, type='l', ylim=c(-2.2,-1),
+     xlab="log d18O Change", ylab="log Novelty",
+     main="Novelty vs d18O change Pre 8ka")
+lines(newdf$d18O, newdf$cds.lo, lty=2)
+lines(newdf$d18O, newdf$cds.hi, lty=2)
+```
+
+### Model 4 Novelty Post 8K
+```{r echo=FALSE}
+#cds.lg.pred$d18O = exp(cds.lg.pred$d18O.c + mean(cds.lg$d18O))
+#cds.lg.pred$cds2 = exp(cds.lg.pred$cds)
+nov.hol.pred$d18O = nov.hol.pred$d18O.c + mean(nov.hol$d18O)
+nov.hol.pred$cds2 = nov.hol.pred$cds
+newdf = data.frame(d18O = unique(nov.hol.pred$d18O),
+                   cds = tapply(nov.hol.pred$cds2, nov.hol.pred$d18O, mean, na.rm=TRUE),
+                   cds.lo = tapply(nov.hol.pred$cds2, nov.hol.pred$d18O, quantile, 0.025, na.rm=TRUE),
+                   cds.hi = tapply(nov.hol.pred$cds2, nov.hol.pred$d18O, quantile, 0.975, na.rm=TRUE))
+plot(cds ~ d18O, newdf, type='l', ylim=c(-2.5,-0.5),
+     xlab="log d18O Change", ylab="log Novelty",
+     main="Novelty vs d18O change Post 8ka")
+lines(newdf$d18O, newdf$cds.lo, lty=2)
+lines(newdf$d18O, newdf$cds.hi, lty=2)
+```
+

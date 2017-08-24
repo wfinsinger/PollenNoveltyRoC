@@ -1,0 +1,169 @@
+---
+title: "lme_model_plots"
+author: "Walter Finsinger"
+date: "10/14/2016"
+output: html_document
+---
+
+
+### Loads NGRIP data
+```{r}
+ngrip <- read.table(file="http://www.iceandclimate.nbi.ku.dk/data/2010-11-19_GICC05modelext_for_NGRIP.txt", skip=70)
+#ngrip <- read.csv(file="./Other_Data/2010-11-19_GICC05modelext_for_NGRIP.csv", header=T)
+colnames(ngrip) <- c("Age_b2k", "depth", "d18O", "MCE")
+# corrects ngrip$Age_b2k...NGRIP uses b2k age scale, where 50 b2k = 0 cal yr BP (AD 1950)
+ngrip$Age <- ngrip$Age_b2k - 50   
+
+# Plot checks age boundaries of YD (as from Table 2 in Rasmussen et al. (2014):
+# Rasmussen, S.O., Bigler, M., Blockley, S.P., Blunier, T., Buchardt, S.L.,
+# Clausen, H.B., et al. (2014). A stratigraphic framework for abrupt climatic changes
+# during the Last Glacial period based on three synchronized Greenland ice-core
+# records: refining and extending the INTIMATE event stratigraphy. Quaternary Science Reviews, 106, 14–28
+# Start of GS-1: 12,896 ± 4 years b2k => 12,846 cal BP
+# Start of Holocene: 11,703 ± 4 years b2k => 11,653 cal BP
+# Start of GI-1 (Bolling): 14,692 ± 4 years B2k => 14,642 cal BP
+par(mfrow=c(1,1))
+plot(ngrip$Age, ngrip$d18O, xlim=rev(range(c(15000, 0))), type="l")
+abline(v = c(14642, 12846, 11653))
+
+## Bin up the the NGRIP data
+time.mid = seq(0, 15500,500)
+d18O.bin = rep(NA, length(time.mid))
+d18O.bin.sd = rep(NA, length(time.mid))
+half.win = 250
+for (i in 1:length(time.mid)) {
+  age.lo = time.mid[i] - half.win
+  age.hi = time.mid[i] + half.win
+  ageID = which(ngrip$Age >= age.lo & ngrip$Age < age.hi)
+  d18O.bin[i] = mean(ngrip$d18O[ageID], na.rm=TRUE)
+  d18O.bin.sd[i] = sd(ngrip$d18O[ageID], na.rm=TRUE)
+}
+d18O.bin <- as.data.frame(d18O.bin)
+colnames(d18O.bin) <- "d18O"
+d18O.bin$Age <- time.mid
+d18O.bin$d18O.diff = c(NA, abs(diff(d18O.bin$d18O))) # gives differenced d18O for baseline Age -> subsequent target Age
+# Age in d18O.bin = TS.Age in other records!!!
+d18O.bin$d18O.diff = log(d18O.bin$d18O.diff)
+d18O.bin$d18O.sd = d18O.bin.sd
+d18O.bin <- d18O.bin[-c(1,32), ]
+
+lines(d18O.bin$Age,d18O.bin$d18O, type='l', lwd=3, col=2)
+
+
+d18O.pre8k <- d18O.bin$d18O.diff[which(d18O.bin$Age>8000)]
+d18O.post8k <- d18O.bin$d18O.diff[which(d18O.bin$Age<=8000)]
+```
+
+
+### Loads lme_model_results.csv
+```{r}
+results <- read.csv("lme_model_results.csv", header = T)
+row.names(results) <- results[ ,1]
+results <- results[ ,-1]
+```
+
+
+### Gets the results into shape
+```{r}
+# RoC.pre8k
+intercept <- results[1,1]
+slope <- results[1,2]
+logd18O <- seq(min(d18O.pre8k), max(d18O.pre8k), by=0.01)
+logRoC <- intercept + (logd18O * slope)
+d18O <- exp(logd18O)
+RoC <- exp(logRoC)
+RoC.pre8k <- data.frame(logd18O, logRoC, d18O, RoC)
+
+par(mfrow=c(2,1), mar = c(0.5,5,0.5,1), oma = c(5,1,1,1), cex=0.7)
+plot(RoC.pre8k$logd18O, RoC.pre8k$logRoC, type="l", ylim=c(-2.5, -0.5), xaxt="n")
+plot(RoC.pre8k$d18O, RoC.pre8k$RoC, type="l")
+mtext("d18O change", side=1, line=2.5, cex=0.8)
+
+
+# Novelty.pre8k
+intercept <- results[3,1]
+slope <- results[3,2]
+logd18O <- seq(min(d18O.pre8k), max(d18O.pre8k), by=0.01)
+logNov <- intercept + (logd18O * slope)
+d18O <- exp(logd18O)
+Nov <- exp(logNov)
+Nov.pre8k <- data.frame(logd18O, logNov, d18O, Nov)
+
+par(mfrow=c(2,1), mar = c(0.5,5,0.5,1), oma = c(5,1,1,1), cex=0.7)
+plot(Nov.pre8k$logd18O, Nov.pre8k$logNov, type="l", ylim=c(-2.5, -0.5), xaxt="n")
+plot(Nov.pre8k$d18O, Nov.pre8k$Nov, type="l")
+mtext("d18O change", side=1, line=2.5, cex=0.8)
+
+
+# RoC.post8k
+intercept <- results[2,1]
+slope <- results[2,2]
+logd18O <- seq(min(d18O.post8k), max(d18O.post8k), by=0.01)
+
+logRoC <- intercept + (logd18O * slope)
+d18O <- exp(logd18O)
+RoC <- exp(logRoC)
+RoC.post8k <- data.frame(logd18O, logRoC, d18O, RoC)
+
+par(mfrow=c(2,1), mar = c(0.5,5,0.5,1), oma = c(5,1,1,1), cex=0.7)
+plot(RoC.post8k$logd18O, RoC.post8k$logRoC, type="l", ylim=c(-2.5, -0.5))
+plot(RoC.post8k$d18O, RoC.post8k$RoC, type="l")
+mtext("d18O change", side=1, line=2.5, cex=0.8)
+
+# Nov.post8k
+intercept <- results[4,1]
+slope <- results[4,2]
+logd18O <- seq(min(d18O.post8k), max(d18O.post8k), by=0.01)
+logNov <- intercept + (logd18O * slope)
+d18O <- exp(logd18O)
+Nov <- exp(logNov)
+Nov.post8k <- data.frame(logd18O, logNov, d18O, Nov)
+
+par(mfrow=c(2,1), mar = c(0.5,5,0.5,1), oma = c(5,1,1,1), cex=0.7)
+plot(Nov.post8k$logd18O, Nov.post8k$logNov, type="l", ylim=c(-2.5, -0.5))
+plot(Nov.post8k$d18O, Nov.post8k$Nov, type="l")
+mtext("d18O change", side=1, line=2.5, cex=0.8)
+```
+
+
+### Plots Figure S13 (see Appendix S1)
+```{r}
+## Plot -> Comparison LME - logRoC and logNovelty changes
+pdf("Figure_S13.pdf")
+par(mfcol=c(2,2), mar = c(1.5,5,0.5,1), oma = c(5,1,1,1), cex=0.7)
+plot(RoC.pre8k$logd18O, RoC.pre8k$logRoC, type="l", lty=2, lwd=2,
+     ylim=c(-1.8, -1.3), axes=F,
+     ylab="log(CD) changes")
+axis(1, at=NULL, labels=T)
+axis(2)
+lines(Nov.pre8k$logd18O, Nov.pre8k$logNov, type="l", lty=1, lwd=2, col="red")
+legend(x="topleft", bty="n", legend=c("RoC response", "Novelty response"),
+       col=c("black", "red"),
+       lty=c(2,1), lwd=2)
+mtext("pre-8ka BP", side=2, line=4.6)
+plot(RoC.post8k$logd18O, RoC.post8k$logRoC, type="l", lty=2, lwd=2,
+     ylim=c(-1.8, -1.3), axes=F,
+     ylab="log(CD) changes")
+axis(1, at=NULL, labels=T)
+axis(2)
+lines(Nov.post8k$logd18O, Nov.post8k$logNov, type="l", lty=1, lwd=2, col="red")
+mtext("post-8ka BP", side=2, line=4.6)
+mtext(expression(paste("log(NGRIP ", delta,""^"18","O) change")), side=1, line=2.9, cex=0.8)
+
+## Comparison LME - RoC and Novelty changes
+plot(RoC.pre8k$d18O, RoC.pre8k$RoC, type="l", lty=2, lwd=2,
+     ylim=c(0.18, 0.25), axes=F,
+     ylab="CD changes")
+axis(1, at=NULL, labels=T)
+axis(2)
+lines(Nov.pre8k$d18O, Nov.pre8k$Nov, type="l", lty=1, lwd=2, col="red")
+plot(RoC.post8k$d18O, RoC.post8k$RoC, type="l", lty=2, lwd=2,
+     ylim=c(0.18, 0.25), axes=F,
+     ylab="CD changes")
+axis(1, at=NULL, labels=T)
+axis(2)
+lines(Nov.post8k$d18O, Nov.post8k$Nov, type="l", lty=1, lwd=2, col="red")
+mtext(expression(paste("NGRIP ", delta,""^"18","O change")), side=1, line=2.9, cex=0.8)
+dev.off()
+```
+

@@ -1,0 +1,259 @@
+---
+title: "EPD RoC Models Post 8K"
+author: "Simon Brewer"
+date: "October 6, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data 
+```{r}
+require(reshape2)
+require(nlme)
+require(mgcv)
+
+input.dir = paste("../RoCchord_Novchord_ListFALSE_Start15000_kth1/DataOut/", sep='_')
+
+## Loads data ####
+
+## NGRIP data
+ngrip <- read.table(file="http://www.iceandclimate.nbi.ku.dk/data/2010-11-19_GICC05modelext_for_NGRIP.txt", skip=70)
+#ngrip <- read.csv(file="./Other_Data/2010-11-19_GICC05modelext_for_NGRIP.csv", header=T)
+colnames(ngrip) <- c("Age_b2k", "depth", "d18O", "MCE")
+# corrects ngrip$Age_b2k...NGRIP uses b2k age scale, where 50 b2k = 0 cal yr BP (AD 1950)
+ngrip$Age <- ngrip$Age_b2k - 50   
+
+# Plot checks age boundaries of YD (as from Table 2 in Rasmussen et al. (2014):
+# Rasmussen, S.O., Bigler, M., Blockley, S.P., Blunier, T., Buchardt, S.L.,
+# Clausen, H.B., et al. (2014). A stratigraphic framework for abrupt climatic changes
+# during the Last Glacial period based on three synchronized Greenland ice-core
+# records: refining and extending the INTIMATE event stratigraphy. Quaternary Science Reviews, 106, 14–28
+# Start of GS-1: 12,896 ± 4 years b2k => 12,846 cal BP
+# Start of Holocene: 11,703 ± 4 years b2k => 11,653 cal BP
+# Start of GI-1 (Bolling): 14,692 ± 4 years B2k => 14,642 cal BP
+par(mfrow=c(1,1))
+plot(ngrip$Age, ngrip$d18O, xlim=rev(range(c(15000, 0))), type="l")
+abline(v = c(14642, 12846, 11653))
+
+## Bin up the the NGRIP data
+time.mid = seq(0, 15500,500)
+d18O.bin = rep(NA, length(time.mid))
+d18O.bin.sd = rep(NA, length(time.mid))
+half.win = 250
+for (i in 1:length(time.mid)) {
+  age.lo = time.mid[i] - half.win
+  age.hi = time.mid[i] + half.win
+  ageID = which(ngrip$Age >= age.lo & ngrip$Age < age.hi)
+  d18O.bin[i] = mean(ngrip$d18O[ageID], na.rm=TRUE)
+  d18O.bin.sd[i] = sd(ngrip$d18O[ageID], na.rm=TRUE)
+}
+d18O.bin <- as.data.frame(d18O.bin)
+colnames(d18O.bin) <- "d18O"
+d18O.bin$Age <- time.mid
+d18O.bin$d18O.diff = c(NA, abs(diff(d18O.bin$d18O))) # gives differenced d18O for baseline Age -> subsequent target Age
+                                                # Age in d18O.bin = TS.Age in other records!!!
+d18O.bin$d18O.diff = log(d18O.bin$d18O.diff)
+d18O.bin$d18O.sd = d18O.bin.sd
+d18O.bin <- d18O.bin[-c(1,32), ]
+
+lines(d18O.bin$Age,d18O.bin$d18O, type='l', lwd=3, col=2)
+
+## differenced binned NGRIP 
+# d18O.bin <- read.csv(paste(input.dir,"d18O_bin.csv", sep=''))
+# d18O.bin <- d18O.bin[-c(1,32), ]
+
+## ---- DATA ---- ##
+## Rate of change record
+rofc_geo <- read.csv(paste(input.dir,"rofc_geo.csv", sep=''), header=T, row.names = NULL)
+rofc_geo <- rofc_geo[, -1]
+
+## Median novelty at 500 year lags
+Nov500 <- read.csv(paste(input.dir,"Nov500.csv", sep=''))
+
+## All novelty values at 500 year lags
+Nov500lag <- read.csv(paste(input.dir,"Nov500lag.csv", sep=''))
+
+## Check data with plots
+par(mfrow=c(2,1), mar=c(1,5,0.5,1), oma=c(5,1,1,1), cex=0.7)
+plot(d18O.bin$Age, d18O.bin$d18O.diff, type="o", xaxt="n", ylab="d18O change")
+abline(v = c(14642, 12846, 11653))
+plot(Nov500$TS.Age, Nov500$med.cma.dist, type="o", ylab="median novelty")
+abline(v = c(14642, 12846, 11653))
+
+par(mfrow=c(1,2))
+plot(d18O.bin$d18O.diff[13:30], Nov500$med.cma.dist[13:30], 
+     xlab="d18O change", ylab="Med novelty")
+plot(d18O.bin$d18O.sd[13:30], Nov500$med.cma.dist[13:30], 
+     xlab="d18O change", ylab="Med novelty")
+```
+
+## Gets the RoC data into shape
+
+```{r}
+time.mid <- seq(500, 15000, 500)
+## Melt RoC data.frame. NB: agepoll = age of baseline set
+cds = melt(rofc_geo, id.vars = c("ent","lon","lat","alt"),
+           variable.name = "agepoll", 
+           value.name = "cd")
+## Modifies the cds data.frame (writes baselines' ages, and binned NGRIP d18O values)
+cds$ent = as.factor(cds$ent)
+cds$agebp = rep(time.mid, each=dim(rofc_geo)[1]) # agebp = age of baseline set
+cds$d18O = rep(d18O.bin$d18O.diff, each=dim(rofc_geo)[1]) # wf added a minus sign in d18O.bin
+#cds$d18O <- abs(cds$d18O)
+cds$d18O.sd <- rep(d18O.bin$d18O.sd, each=dim(rofc_geo)[1])
+
+cds = cds[which(complete.cases(cds)),]
+
+## Log transform CD scores
+cds$lcd = log(cds$cd)
+
+par(mfrow=c(1,1))
+plot(cds$agebp, cds$cd)
+plot(cds$agebp, cds$lcd, type="o") # Note there's an outlier at 2000 cal BP having an lcd < -6!!
+outl <- cds[which(cds$lcd < -6), ]
+
+## Delete the one outlier sample
+cds <- cds[-which(cds$lcd < -6), ]
+plot(cds$agebp, cds$lcd, type="o")
+boxplot(cds$lcd ~ cds$agebp)
+
+## Post 8K only
+cds.hol = subset(cds, agebp<=8000)
+
+## mean center
+cds.hol$agebp.c = cds.hol$agebp - mean(cds.hol$agebp)
+cds.hol$d18O.c = cds.hol$d18O - mean(cds.hol$d18O)
+```
+
+# Models
+
+## OLS model
+```{r}
+scd.ols = lm(lcd ~ 1, data=cds.hol)
+summary(scd.ols)
+```
+
+## Unconditional means model (LME)
+```{r}
+scd.fit0 = lme(lcd ~ 1, random=~1|ent, data=cds.hol, method="ML")
+summary(scd.fit0)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(scd.fit0),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(scd.fit0)
+```
+
+Variance components
+```{r}
+VarCorr(scd.fit0)
+```
+
+- Variance of intercept/between site variability ($\tau^2$): `r round(as.numeric(VarCorr(scd.fit0)[1,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(scd.fit0)[2,1]),4)`
+- Approx `r as.numeric(VarCorr(scd.fit0)[1,1])/(as.numeric(VarCorr(scd.fit0)[1,1])+as.numeric(VarCorr(scd.fit0)[2,1]))*100` percent between sites
+- Approx `r as.numeric(VarCorr(scd.fit0)[2,1])/(as.numeric(VarCorr(scd.fit0)[1,1])+as.numeric(VarCorr(scd.fit0)[2,1]))*100` percent within sites
+
+## Random intercepts model (LME)
+```{r}
+scd.fit1 = lme(lcd ~ agebp, random=~1|ent, data=cds.hol, method="ML")
+summary(scd.fit1)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(scd.fit1),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(scd.fit1)
+```
+
+Variance components
+```{r}
+VarCorr(scd.fit1)
+```
+
+- Variance of intercept/between site variability ($\tau^2$): `r round(as.numeric(VarCorr(scd.fit1)[1,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(scd.fit1)[2,1]),4)`
+- Approx `r as.numeric(VarCorr(scd.fit1)[1,1])/(as.numeric(VarCorr(scd.fit1)[1,1])+as.numeric(VarCorr(scd.fit1)[2,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(scd.ols,scd.fit0,scd.fit1), AIC)
+```
+
+Pseudo $r^2$ ((sigma of unconditional means) - (sigma of random intercept)) / (sigma of unconditional means)
+```{r}
+(as.numeric(VarCorr(scd.fit0)[2,1]) - as.numeric(VarCorr(scd.fit1)[2,1]))/ as.numeric(VarCorr(scd.fit0)[2,1])
+```
+About 3% of variance of LCD by relationship with AGEBP. Therefore single linear relationship (i.e. fixed slope) is not a good model
+
+## Random slopes and intercepts model (LME)
+```{r}
+scd.fit2 = lme(lcd ~ agebp.c, random=~1+agebp.c|ent, data=cds.hol, method="ML")
+summary(scd.fit2)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(scd.fit2),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(scd.fit2)
+```
+
+Variance components
+```{r}
+VarCorr(scd.fit2)
+```
+
+- Variance of intercept/between site variability ($\tau^2_0$): `r round(as.numeric(VarCorr(scd.fit2)[1,1]),4)`
+- Variance in site response to d18O ($\tau^2_1$): `r round(as.numeric(VarCorr(scd.fit2)[2,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(scd.fit2)[3,1]),4)`
+- Approx `r as.numeric(VarCorr(scd.fit2)[1,1])/(as.numeric(VarCorr(scd.fit2)[1,1])+as.numeric(VarCorr(scd.fit2)[3,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(scd.ols,scd.fit0,scd.fit1,scd.fit2), AIC)
+```
+
+Pseudo $r^2$ ((sigma of unconditional means) - (sigma of random intercept)) / (sigma of unconditional means)
+```{r}
+(as.numeric(VarCorr(scd.fit0)[2,1]) - (as.numeric(VarCorr(scd.fit2)[2,1])
+ + as.numeric(VarCorr(scd.fit2)[3,1])))/ as.numeric(VarCorr(scd.fit0)[2,1])
+```
+A whopping 6.7% of variance of LCD by varying relationship with AGEBP. 
+
+## Random [slopes and] intercepts model w/ d18O (LME)
+```{r}
+#scd.fit3 = lme(lcd ~ d18O.c, random=~1+d18O.c|ent, data=cds.hol, method="ML")
+scd.fit3 = lme(lcd ~ d18O.c, random=~1|ent, data=cds.hol, method="ML")
+summary(scd.fit3)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(scd.fit3),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(scd.fit3)
+```
+
+Variance components
+```{r}
+VarCorr(scd.fit3)
+```
+
+- Variance of intercept/between site variability ($\tau^2_0$): `r round(as.numeric(VarCorr(scd.fit2)[1,1]),4)`
+- Variance in site response to d18O ($\tau^2_1$): `r round(as.numeric(VarCorr(scd.fit2)[2,1]),4)`
+<!-- - Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(scd.fit2)[3,1]),4)` -->
+- Approx `r as.numeric(VarCorr(scd.fit3)[1,1])/(as.numeric(VarCorr(scd.fit3)[1,1])+as.numeric(VarCorr(scd.fit3)[2,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(scd.ols,scd.fit0,scd.fit1,scd.fit2,scd.fit3), AIC)
+save(cds.hol,scd.ols,scd.fit0,scd.fit1,scd.fit2,scd.fit3, file="RoC_Post8K.RData")
+```
+

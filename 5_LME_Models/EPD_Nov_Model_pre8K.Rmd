@@ -1,0 +1,264 @@
+---
+title: "EPD Novelty Models Pre 8K"
+author: "Simon Brewer"
+date: "October 6, 2016"
+output: html_document
+---
+
+**NB: before running the script, change the "input.dir" accordingly.**
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data 
+```{r}
+require(reshape2)
+require(nlme)
+require(mgcv)
+
+input.dir = paste("../RoCchord_Novchord_ListFALSE_Start15000_kth1/DataOut/", sep='_')
+
+## Loads data ####
+
+## NGRIP data
+ngrip <- read.table(file="http://www.iceandclimate.nbi.ku.dk/data/2010-11-19_GICC05modelext_for_NGRIP.txt", skip=70)
+#ngrip <- read.csv(file="./Other_Data/2010-11-19_GICC05modelext_for_NGRIP.csv", header=T)
+colnames(ngrip) <- c("Age_b2k", "depth", "d18O", "MCE")
+# corrects ngrip$Age_b2k...NGRIP uses b2k age scale, where 50 b2k = 0 cal yr BP (AD 1950)
+ngrip$Age <- ngrip$Age_b2k - 50   
+
+# Plot checks age boundaries of YD (as from Table 2 in Rasmussen et al. (2014):
+# Rasmussen, S.O., Bigler, M., Blockley, S.P., Blunier, T., Buchardt, S.L.,
+# Clausen, H.B., et al. (2014). A stratigraphic framework for abrupt climatic changes
+# during the Last Glacial period based on three synchronized Greenland ice-core
+# records: refining and extending the INTIMATE event stratigraphy. Quaternary Science Reviews, 106, 14–28
+# Start of GS-1: 12,896 ± 4 years b2k => 12,846 cal BP
+# Start of Holocene: 11,703 ± 4 years b2k => 11,653 cal BP
+# Start of GI-1 (Bolling): 14,692 ± 4 years B2k => 14,642 cal BP
+plot(ngrip$Age, ngrip$d18O, xlim=rev(range(c(15000, 0))), type="l")
+abline(v = c(14642, 12846, 11653))
+
+## Bin up the the NGRIP data
+time.mid = seq(0, 15500,500)
+d18O.bin = rep(NA, length(time.mid))
+d18O.bin.sd = rep(NA, length(time.mid))
+half.win = 250
+for (i in 1:length(time.mid)) {
+  age.lo = time.mid[i] - half.win
+  age.hi = time.mid[i] + half.win
+  ageID = which(ngrip$Age >= age.lo & ngrip$Age < age.hi)
+  d18O.bin[i] = mean(ngrip$d18O[ageID], na.rm=TRUE)
+  d18O.bin.sd[i] = sd(ngrip$d18O[ageID], na.rm=TRUE)
+}
+d18O.bin <- as.data.frame(d18O.bin)
+colnames(d18O.bin) <- "d18O"
+d18O.bin$Age <- time.mid
+d18O.bin$d18O.diff = c(NA, abs(diff(d18O.bin$d18O))) # gives differenced d18O for baseline Age -> subsequent target Age
+                                                # Age in d18O.bin = TS.Age in other records!!!
+d18O.bin$d18O.diff = log(d18O.bin$d18O.diff)
+d18O.bin$d18O.sd = d18O.bin.sd
+d18O.bin <- d18O.bin[-c(1,32), ]
+lines(d18O.bin$Age,d18O.bin$d18O, type='l', lwd=3, col=2)
+
+## differenced binned NGRIP 
+# d18O.bin <- read.csv(paste(input.dir,"d18O_bin.csv", sep=''))
+# d18O.bin <- d18O.bin[-c(1,32), ]
+
+## ---- DATA ---- ##
+## Median novelty at 500 year lags
+Nov500 <- read.csv(paste(input.dir,"Nov500.csv", sep=''))
+
+## All novelty values at 500 year lags
+Nov500lag <- read.csv(paste(input.dir,"Nov500lag.csv", sep=''))
+
+## Check data with plots
+par(mfrow=c(2,1), cex=0.7)
+plot(d18O.bin$Age, d18O.bin$d18O.diff, type="o", xaxt="n", ylab="d18O change")
+abline(v = c(14642, 12846, 11653))
+plot(Nov500$TS.Age, Nov500$med.cma.dist, type="o", ylab="median novelty")
+abline(v = c(14642, 12846, 11653))
+
+par(mfrow=c(1,2))
+plot(d18O.bin$d18O.diff[13:30], Nov500$med.cma.dist[13:30], 
+     xlab="d18O change", ylab="Med novelty")
+plot(d18O.bin$d18O.sd[13:30], Nov500$med.cma.dist[13:30], 
+     xlab="d18O change", ylab="Med novelty")
+```
+
+## Gets the novelty data into shape
+
+```{r}
+time.mid <- seq(500, 15000, 500)
+
+## Gets the Novelty data into shape
+Nov500lag$d18O = rep(NA, dim(Nov500lag)[1])
+Nov500lag$d18O.sd = rep(NA, dim(Nov500lag)[1])
+for (i in 1:length(time.mid)) {
+  novID = which(Nov500lag$TS.age==time.mid[i])
+  iceID = which(d18O.bin$Age==time.mid[i])
+  Nov500lag$d18O[novID] = d18O.bin$d18O.diff[iceID]
+  Nov500lag$d18O.sd[novID] = d18O.bin$d18O.sd[iceID]
+  
+}
+Nov500lag$lcma = log(Nov500lag$cma_dist)
+
+## Remove outlier
+Nov500lag = Nov500lag[-1601,]
+
+## Pre 8K only
+nov.lg = subset(Nov500lag, TS.age>8000)
+
+## mean center
+nov.lg$TS.age.c = nov.lg$TS.age - mean(nov.lg$TS.age)
+nov.lg$d18O.c = nov.lg$d18O - mean(nov.lg$d18O)
+```
+
+# Models
+
+## Common pooling model
+```{r}
+nov.ols = lm(lcma ~ 1, data=nov.lg)
+summary(nov.ols)
+```
+
+## Unconditional means model (LME)
+```{r}
+nov.fit0 = lme(lcma ~ 1, random=~1|TS.ent, data=nov.lg, method="ML")
+summary(nov.fit0)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(nov.fit0),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(nov.fit0)
+```
+
+Variance components
+```{r}
+VarCorr(nov.fit0)
+```
+
+- Variance of intercept/between site variability ($\tau^2$): `r round(as.numeric(VarCorr(nov.fit0)[1,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(nov.fit0)[2,1]),4)`
+- Approx `r as.numeric(VarCorr(nov.fit0)[1,1])/(as.numeric(VarCorr(nov.fit0)[1,1])+as.numeric(VarCorr(nov.fit0)[2,1]))*100` percent between sites
+
+## Random intercepts model (LME)
+```{r}
+nov.fit1 = lme(lcma ~ TS.age.c, random=~1|TS.ent, data=nov.lg, method="ML")
+summary(nov.fit1)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(nov.fit1),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(nov.fit1)
+```
+
+Variance components
+```{r}
+VarCorr(nov.fit1)
+```
+
+- Variance of intercept/between site variability ($\tau^2$): `r round(as.numeric(VarCorr(nov.fit1)[1,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(nov.fit1)[2,1]),4)`
+- Approx `r as.numeric(VarCorr(nov.fit1)[1,1])/(as.numeric(VarCorr(nov.fit1)[1,1])+as.numeric(VarCorr(nov.fit1)[2,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(nov.ols,nov.fit0,nov.fit1), AIC)
+```
+
+Pseudo $r^2$ ((sigma of unconditional means) - (sigma of random intercept)) / (sigma of unconditional means)
+```{r}
+(as.numeric(VarCorr(nov.fit0)[2,1]) - as.numeric(VarCorr(nov.fit1)[2,1]))/ as.numeric(VarCorr(nov.fit0)[2,1])
+```
+About 0.4% of variance of LCD by relationship with AGEBP. Therefore single linear relationship (i.e. fixed slope) is not a good model
+
+## Random slopes and intercepts model (LME)
+```{r}
+nov.fit2 = lme(lcma ~ TS.age.c, random=~1+TS.age.c|TS.ent, data=nov.lg, method="ML")
+summary(nov.fit2)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(nov.fit2),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(nov.fit2)
+```
+
+Variance components
+```{r}
+VarCorr(nov.fit2)
+```
+
+- Variance of intercept/between site variability ($\tau^2_0$): `r round(as.numeric(VarCorr(nov.fit2)[1,1]),4)`
+- Variance in site response over time ($\tau^2_1$): `r round(as.numeric(VarCorr(nov.fit2)[2,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(nov.fit2)[3,1]),4)`
+- Approx `r as.numeric(VarCorr(nov.fit2)[1,1])/(as.numeric(VarCorr(nov.fit2)[1,1])+as.numeric(VarCorr(nov.fit2)[3,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(nov.ols,nov.fit0,nov.fit1,nov.fit2), AIC)
+```
+
+## Random slopes and intercepts model w/ d18O (LME)
+```{r}
+nov.fit3 = lme(lcma ~ d18O.c, random=~1+d18O.c|TS.ent, data=nov.lg, method="ML")
+summary(nov.fit3)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(nov.fit3),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(nov.fit3)
+```
+
+Variance components
+```{r}
+VarCorr(nov.fit3)
+```
+
+- Variance of intercept/between site variability ($\tau^2_0$): `r round(as.numeric(VarCorr(nov.fit3)[1,1]),4)`
+- Variance in site response to d18O ($\tau^2_1$): `r round(as.numeric(VarCorr(nov.fit3)[2,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(nov.fit3)[3,1]),4)`
+- Approx `r as.numeric(VarCorr(nov.fit3)[1,1])/(as.numeric(VarCorr(nov.fit3)[1,1])+as.numeric(VarCorr(nov.fit3)[3,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(nov.ols,nov.fit0,nov.fit1,nov.fit2,nov.fit3), AIC)
+```
+
+## Random intercepts model w/ d18O (LME)
+```{r}
+nov.fit4 = lme(lcma ~ d18O.c, random=~1|TS.ent, data=nov.lg, method="ML")
+summary(nov.fit4)
+```
+
+Maximum likelihood fit model with AIC of `r round(AIC(nov.fit4),2)`.
+
+Fixed effects (significant under Wald test):
+```{r}
+fixed.effects(nov.fit4)
+```
+
+Variance components
+```{r}
+VarCorr(nov.fit4)
+```
+
+- Variance of intercept/between site variability ($\tau^2_0$): `r round(as.numeric(VarCorr(nov.fit4)[1,1]),4)`
+- Variance within cores/residuals ($\sigma^2$): `r round(as.numeric(VarCorr(nov.fit4)[2,1]),4)`
+- Approx `r as.numeric(VarCorr(nov.fit4)[1,1])/(as.numeric(VarCorr(nov.fit4)[1,1])+as.numeric(VarCorr(nov.fit4)[2,1]))*100` percent between sites
+
+Now examine AIC to see whether including the random intercepts has helped (yes!):
+```{r}
+sapply(list(nov.ols,nov.fit0,nov.fit1,nov.fit2,nov.fit3,nov.fit4), AIC)
+save(nov.lg,nov.ols,nov.fit0,nov.fit1,nov.fit2,nov.fit3,nov.fit4, file="Nov_Pre8K.RData")
+```
+
+
