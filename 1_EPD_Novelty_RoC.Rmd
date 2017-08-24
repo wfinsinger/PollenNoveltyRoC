@@ -1,0 +1,1078 @@
+---
+title: "EPD Novelty RoC"
+output: html_document
+author: Walter Finsinger
+date: 21-11-2016
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loads packages
+```{r}
+require(geosphere)
+require(ggplot2)
+require(viridis) # to use the viridis color scheme in the levelplots
+require(lattice)
+require(plyr)
+require(dplyr) # used to join TS and FS and find common sites
+require(analogue)
+require(stats)
+require(mapdata)
+require(maps)
+```
+
+## Sets some parameters that will be used later
+```{r}
+RoC.method = "chord"  # Method "chord" is recommended; but options include: "jaccard", and "fuse" (=chord & jaccard).
+nov.method = "chord"  # Method "chord" is recommended; but options include: "jaccard", and "fuse" (=chord & jaccard).
+equal.sites = F       # Determines whether novelty is estimated based on constant site density.
+end.Bin.out = 15500   # Determines the age of the youngest Age.Bin that will be excluded from the analysis.
+kth = 1               # Defines which among the close analogues to keep. Default is kth=1, i.e. the closest analogue.
+```
+
+### Create folder name based on the chosen parameters
+```{r}
+  out.dir.name <- paste("RoC",RoC.method,"_Nov",nov.method,"_List",equal.sites,
+                        "_Start",end.Bin.out-500,"_kth",kth,"/", sep="")
+```
+
+### Create output directory where data and figures are stored
+```{r}
+output.dir = file.path(".",out.dir.name)
+dir.create(output.dir)
+
+plots.output.dir = paste(output.dir,"summary_plots/", sep='')
+dir.create(plots.output.dir)
+
+data.output.dir = paste(output.dir,"DataOut/", sep='')
+dir.create(data.output.dir)
+```
+
+### Set the cut-off value to determine "close analogues" to 1000...such that cut-off is actually not used
+```{r}
+  cut.off = 1000
+```
+
+## Writes the settings used in the analysis into a text file
+```{r}
+params = as.matrix(c("start time", "end.Bin.out = ", "equal.sites = ", "nov.method = ", "kth = ", "RoC.method = "))
+value = c(date(), end.Bin.out, equal.sites, nov.method, kth, RoC.method)
+settings = data.frame(params, value)
+write.table(settings, file=paste(output.dir,"settings.txt"), quote=F)
+
+rm(params, value, settings)
+```
+
+
+# Loads data that will be used later
+
+### NGRIP data from NOAA
+
+Rasmussen, S.O., Bigler, M., Blockley, S.P., Blunier, T., Buchardt, S.L., Clausen, H.B., et al. (2014). A stratigraphic framework for abrupt climatic changes during the Last Glacial period based on three synchronized Greenland ice-core records: refining and extending the INTIMATE event stratigraphy. Quaternary Science Reviews, 106, 14–28
+
+```{r}
+ngrip <- read.table(file="http://www.iceandclimate.nbi.ku.dk/data/2010-11-19_GICC05modelext_for_NGRIP.txt", skip=70)
+
+colnames(ngrip) <- c("Age_b2k", "depth", "d18O", "MCE")
+# corrects ngrip$Age_b2k...NGRIP uses b2k age scale, where 50 b2k = 0 cal yr BP (AD 1950)
+ngrip$Age <- ngrip$Age_b2k - 50   
+```
+
+Plot to check age boundaries of YD (as from Table 2 in Rasmussen et al. (2014):
+
+- Start of GS-1: 12,896 ± 4 years b2k => 12,846 cal BP
+
+- Start of Holocene: 11,703 ± 4 years b2k => 11,653 cal BP
+
+- Start of GI-1 (Bolling): 14,692 ± 4 years B2k => 14,642 cal BP
+```{r}
+par(mfrow=c(1,1))
+plot(ngrip$Age, ngrip$d18O, xlim=rev(range(c(15000, 0))), type="l")
+abline(v = c(14642, 12846, 11653))
+```
+
+### Bin up the the NGRIP data
+```{r}
+time.mid = seq(0, 15500,500)
+d18O.bin = rep(NA, length(time.mid))
+half.win = 250
+for (i in 1:length(time.mid)) {
+  age.lo = time.mid[i] - half.win
+  age.hi = time.mid[i] + half.win
+  ageID = which(ngrip$Age >= age.lo & ngrip$Age < age.hi)
+  d18O.bin[i] = mean(ngrip$d18O[ageID], na.rm=TRUE)
+}
+d18O.bin <- as.data.frame(d18O.bin)
+colnames(d18O.bin) <- "d18O"
+d18O.bin$Age <- time.mid
+```
+
+### Calculate differencials of d18O among consecutive age bins
+```{r}
+d18O.bin$d18O.diff = c(NA, abs(diff(d18O.bin$d18O)))
+```
+
+### Plot to check binning of NGRIP record
+```{r}
+par(mfrow=c(2,1), mar=c(1,5,0.5,1), oma=c(5,1,1,1), cex=0.7)
+plot(ngrip$Age, ngrip$d18O, xlim=rev(range(c(15000, 0))), type="l", col="grey", xaxt="n")
+lines(d18O.bin$Age, d18O.bin$d18O, type="o", xlim=c(15000,0), col="red", lwd=2)
+abline(v = c(14642, 12846, 11653))
+plot(d18O.bin$Age, d18O.bin$d18O.diff, type="o", xlim=c(15000,0))
+abline(v = c(14642, 12846, 11653))
+
+par(mfrow=c(2,1), mar=c(1,5,0.5,1), oma=c(5,1,1,1), cex=0.7)
+plot(d18O.bin$Age-250, d18O.bin$d18O, type="s", xlim=c(15000,0), xaxt="n", col="red", lwd=2)
+lines(ngrip$Age, ngrip$d18O, xlim=rev(range(c(15000, 0))), type="l")
+abline(v = c(14642, 12846, 11653))
+plot(d18O.bin$Age-250, d18O.bin$d18O.diff, type="s", xlim=c(15000,0))
+
+abline(v = c(14642, 12846, 11653))
+
+rm(half.win, age.lo, age.hi, ageID, i)
+```
+
+# Load Binned Pollen data 'AllData_p.csv' from the 'cma_input' directory
+```{r}
+dat = read.csv(file="./cma_input/AllData_p.csv", header=T)
+```
+
+
+# Calculate RoC (<- AllData_p.csv)
+```{r}
+ent.list <- unique(dat$ent)
+myTS = seq(0, end.Bin.out-500, by=500)
+```
+
+### Make space in two matrices that will be populated in the loop here below
+```{r}
+geogr = matrix(NA, nrow=4, ncol=length(ent.list))
+rofc = matrix(NA, nrow=length(myTS)-1, ncol=length(ent.list))
+```
+
+### Populates the rate-of-vegetation change (RoC) matrix (-> rofc_geo.csv)
+```{r, message = FALSE}
+for (i in 1:length(ent.list)) {
+  print(paste("Doing",ent.list[i]))
+  data = dat[which(dat$ent == ent.list[i]), ]
+
+  
+  sitegeogr = data[1,-c(5:48)]
+  sitegeogr = t(sitegeogr)
+  geogr[,i] = sitegeogr
+  
+  data.p = data[ ,6:48]
+  data.g = data[ ,1:5]
+  
+  ## Calculates RoC using analogue or vegan packages ###
+  if (length(which(complete.cases(data.p))) > 0) {
+    for (j in 1:(length(myTS)-1)) {
+      time1 = data.p[j, ]
+      time2 = data.p[(j+1), ]
+      if(is.na(time1) || is.na(time2) == T) {
+        rofc[j,i] <- NA
+        
+      } else {
+        
+        if(RoC.method == "chord") {
+          rofc[j,i] <- distance(time2, time1, method = "chord") # distance() function from analogue package
+        }
+        if(RoC.method == "jaccard") {
+          time12 <- rbind(time1, time2)
+          S.jacc <- vegdist(time12, method = "jaccard", binary=TRUE)
+          S.jacc <- sqrt(S.jacc)
+          rofc[j,i] <- S.jacc
+        }
+        if(RoC.method == "fuse") {
+          cd <- distance(time2, time1, method = "chord") # distance() function from analogue package
+          time12 <- rbind(time1, time2)
+          S.jacc <- vegdist(time12, method = "jaccard", binary=TRUE)
+          S.jacc <- sqrt(S.jacc)
+          rofc[j,i] <- sum(0.5 * cd, 0.5 * S.jacc) # Fuse without rescaling objects
+        }
+      }
+    }
+  }
+}
+
+rofc <- as.data.frame(rofc)
+geogr <- as.data.frame(geogr)
+
+rofc = as.data.frame(t(rofc))
+geogr = as.data.frame(t(geogr))
+
+colnames(rofc) = myTS[-1]
+colnames(geogr) = c("ent", "lon", "lat", "alt")
+
+rofc_geo = cbind(geogr, rofc)
+
+rm(data, data.p, data.g, time1, time2, i, j, ent.list, geogr, rofc, sitegeogr, myTS)
+```
+
+# Novelty analysis
+
+### Makes 'Data sets' for each AgeBin
+```{r}
+Age.Bin = seq(0,15000,by=500)
+TS.length = data.frame(n.obs=NA, Age=Age.Bin)
+nTS = length(Age.Bin)
+nrow.TS = rep(0, nTS)
+for (j in 1:nTS) {
+  Age = Age.Bin[j]
+  TS = matrix(nrow=828, ncol=48)
+  TS = dat [which(dat$age == Age), ]
+  TS = na.omit(TS)
+  row.names(TS) = seq(nrow(TS))
+  assign(paste("TS", Age, sep=""), TS)
+  nrow.TS[j] = nrow(TS)
+  TS.length[j,1] = nrow(TS)
+  rm(TS)
+}
+```
+
+### Writes a csv file with the number of observations for each AgeBin (as plotted in Fig. 2f)
+```{r}
+write.csv(TS.length, file=paste(data.output.dir,"n_obs_AgeBins.csv",sep="")) # writes csv file with n.observation for each AgeBin
+
+rm(Age, j, TS.length)
+```
+
+### If novelty is estimated based on constant site density, then we need to know which sites are included in each AgeBin
+```{r}
+if(equal.sites == T) {
+## Makes a List of sites included in each Age.Bin from 15000 -> 0 cal BP
+## and keeps only four columns, incl. 'ent', 'age', 'Abies%'.
+all.sites <- dat[ ,c(1:2, 5:6)]
+all.sites <- split(all.sites, f = all.sites$age)
+all.sites <- all.sites[c(1:31)]
+
+} else { }
+
+rm(dat)
+```
+
+
+### Forward Analogue-matching Analysis (-> ./All_closest_analogs.csv)
+In this part of the script, we will search the closest counterpart j in every target set (FS) for each record i in the baseline set (TS).
+
+### First make space to store data generated in the following loop
+```{r}
+# Empty dataframe where to store the data of the analogue-matching analysis
+Close.all = data.frame(cma_dist=NA, TS.ind=NA, FS.ind=NA, TS.ent=NA, TS.lon=NA, TS.lat=NA, TS.alt=NA, TS.age=NA,
+                       FS.ent=NA, FS.lon=NA, FS.lat=NA, FS.alt=NA, FS.age=NA, km=NA, vel=NA, acc=NA)
+Close.all = Close.all[-1, ]
+```
+
+
+```{r}
+x.lim = c(min(Age.Bin), max(Age.Bin)) # will be used later for plots
+```
+
+### Defines series of AgeBins to be used in the following
+```{r}
+Ages.out <- Age.Bin[which(Age.Bin >= end.Bin.out)]
+n.Ages.out <- length(Ages.out)
+start.Ages.out <- (nTS - n.Ages.out) + 1
+```
+
+### If 'equal.sites is set to TRUE, selects subset of TS and FS such that only sites included in all TS and FS are included (constant data resolution).
+```{r}
+if(equal.sites == T) {
+run.sites <- all.sites[-c(start.Ages.out : nTS)]
+
+join.sites <- join_all(run.sites, by="ent", type="inner", match="all")
+join.sites <- join.sites[which(complete.cases(join.sites)), ]
+
+bins.used <- as.data.frame(Age.Bin[1:start.Ages.out-1])
+colnames(bins.used) [1] <- "bins"
+n.obs.used <- nrow(join.sites)
+bins.used$n_obs <- n.obs.used
+
+rm(Ages.out, start.Ages.out, run.sites)
+
+} else {
+  bins.used <- as.data.frame(Age.Bin[1:start.Ages.out-1])
+  colnames(bins.used) [1] <- "bins"
+  bins.used$n_obs <- nrow.TS[1:length(bins.used$bins)]
+}
+
+write.csv(bins.used, file=paste(data.output.dir,"bins_used.csv", sep=''))
+
+```
+
+
+### Main Loop to perform Analogue Matching: identify for each record i in TS (defined by 't') the closest counterpart j in each FS determined by 'Age.Bin' with 'm' in next loop.
+```{r}
+ for (t in 2:(nTS-n.Ages.out)) {
+  TS.Age = Age.Bin[t]                          # sets the Age of the reference time slice, i.e. the one of the TS
+  TS = as.data.frame(get(paste("TS", TS.Age, sep=""), envir=.GlobalEnv))
+  print (paste("Doing training set TS",TS.Age, "...patience..."))
+
+  ## defines the FS datasets for each TS
+  FS.forTS = seq(from=TS.Age-500, to=0, by=-500)
+  FS.forTS = rev(FS.forTS)
+  nFS.forTS = length(FS.forTS)
+  
+  if(equal.sites == T) {
+  TS <- inner_join(TS, join.sites[,1:2], by="ent")
+  } else { }
+  
+  
+  # Sub-loop to get close analogues in each FS.Age.Bin for each TS
+  # where TS.Age > FS.Age (defined by vector FS.forTS)
+  
+  for (m in 1:nFS.forTS) {
+    FS.Age = Age.Bin[m]
+    FS = as.data.frame(get(paste("TS", FS.Age, sep=""), envir=.GlobalEnv))
+    print (paste("...checking closest analogues in FS AgeBin", FS.Age, "...patience..."))
+    
+    if(equal.sites == T) {
+    ## Selects only FS and TS sites included in both TS and FS
+    FS <- inner_join(FS, join.sites[ ,1:2], by="ent")
+    } else { }
+    
+    if (nov.method == "chord") {
+    ## fit an analogue matching (AM) model using the chord distance measure
+    ## - need to keep the training set dissimilarities
+    ##  # need to omit the first 5 columns in each dataset because they store geogr info
+    ## X=FS, Y=TS so that analog() output = closest analogues in FS for each assemblage in TS
+    TS.ana = analog(FS[,6:48], TS[,6:48], method = "chord", keep.train = TRUE)
+    
+    ## Close modern analogues --- no analogues are "close"
+    Ana.cma = cma(TS.ana, cutoff=cut.off)
+    #sum.Ana = as.list(summary(Ana.cma))
+    #summary(Ana.cma)
+    
+    rm(TS.ana)
+    } else { }
+   
+    if(nov.method == "fuse") {
+    ## Use function fuse() to determine chord-jaccard dissimilarities
+    
+    ## First Select only columns with pollen %
+    TS.a <- TS[,6:48]
+    FS.a <- FS[,6:48]
+    
+    names.ts <- rownames(TS.a)
+    names.fs <- rownames(FS.a)
+    
+    n.ts <- length(names.ts)
+    n.fs <- length(names.fs)
+    
+    ## Rbind two datasets into one
+    S.a <- rbind(TS.a, FS.a)
+    
+    # calculate dissimilarity distances between datasets and stores as matrix
+    # where rows and cols are ordered as TS->FS
+    S.d1 <- as.matrix(vegdist(S.a, method="jaccard", binary=TRUE)) # vegdist() uses the transformation D=(1-S)
+    S.d1 <- sqrt(S.d1)                                # transforms to D=sqrt((1-S)) to guarantee a fully Euclidean representation
+    S.d2 <- as.matrix(distance(S.a, method="chord", dist=T))
+    
+    # Fuse dissimilarities
+    S.dd <- as.matrix(fuse(S.d1, S.d2))
+    
+    # Reduce matrix: keep rectangular matrix where rows=TS.a, cols=FS.a
+    S.dd <- S.dd[ 1 : n.ts, (n.ts+1) : (n.ts+n.fs) ] 
+    colnames(S.dd) <- rownames(FS.a)
+    
+    # Report sorted close analogs in a list called "close" formatted just as
+    # the "close" List that is produced by the 'analogue' package
+    nams.ts <- TS$ent
+    nams.fs <- FS$ent
+    close <- vector("list", n.ts)
+    for(i in seq_len(n.ts)) {
+      close[[i]] <- sort(S.dd[i, ])
+    }
+    
+    names(close) <- nams.ts
+    
+    Fuse.cma <- list(close)
+    names(Fuse.cma)[1] <- "close"
+    
+    .call <- match.call()
+    .call[[1]] <- as.name("cma")
+    structure(list(close = close,
+                   call = .call, cutoff = cut.off,
+                   quant = "none", probs = "none",
+                   prob = "none",
+                   method = "fuse",
+                   n.analogs = "all"),
+              class = "cma")
+    class(Fuse.cma) <- "cma"
+    
+    Ana.cma <- Fuse.cma
+    
+    rm(i, close, Fuse.cma, FS.a, TS.a, S.a, S.d1, S.d2, S.dd)
+    } else { }
+    
+    if(nov.method == "jaccard") {
+      ## Uses jaccard coefficient to estimate dissimilarities
+      
+      ## First Select only columns with pollen %
+      TS.a <- TS[,6:48]
+      FS.a <- FS[,6:48]
+      
+      names.ts <- rownames(TS.a)
+      names.fs <- rownames(FS.a)
+      
+      n.ts <- length(names.ts)
+      n.fs <- length(names.fs)
+      
+      ## Rbind two datasets into one
+      S.a <- rbind(TS.a, FS.a)
+      
+      # calculate dissimilarity distances between datasets and stores as matrix
+      # where rows and cols are ordered as TS->FS
+      S.d1 <- as.matrix(vegdist(S.a, method="jaccard", binary=TRUE)) # vegdist() uses the transformation D=(1-S)
+      S.d1 <- sqrt(S.d1)            # transforms to D=sqrt((1-S)) to guarantee a fully Euclidean representation
+      
+      # Reduce matrix: keep rectangular matrix where rows=TS.a, cols=FS.a
+      S.d1 <- S.d1[ 1 : n.ts, (n.ts+1) : (n.ts+n.fs) ] 
+      colnames(S.d1) <- rownames(FS.a)
+      
+      # Report sorted close analogs in a list called "close" formatted just as
+      # the "close" List that is produced by the 'analogue' package
+      nams.ts <- TS$ent
+      nams.fs <- FS$ent
+      close <- vector("list", n.ts)
+      for(i in seq_len(n.ts)) {
+        close[[i]] <- sort(S.d1[i, ])
+      }
+      
+      names(close) <- nams.ts
+      
+      Jacc.cma <- list(close)
+      names(Jacc.cma)[1] <- "close"
+      
+      .call <- match.call()
+      .call[[1]] <- as.name("cma")
+      structure(list(close = close,
+                     call = .call, cutoff = cut.off,
+                     quant = "none", probs = "none",
+                     prob = "none",
+                     method = "fuse",
+                     n.analogs = "all"),
+                class = "cma")
+      class(Jacc.cma) <- "cma"
+      
+      Ana.cma <- Jacc.cma
+      
+      rm(i, close, Jacc.cma, FS.a, TS.a, S.a, S.d1)
+    } else { }
+  
+    
+    ## Extract the cma distance for each TS sample ###
+    ## and writes them in data.frame Close.dat
+    Close.dat = data.frame(cma_dist=NA, TS.ind=NA, FS.ind=NA, TS.ent=NA, TS.lon=NA, TS.lat=NA, TS.alt=NA, TS.age=NA)
+    TS.ind = row.names(TS) # list to find the samples back
+    TS.n = length(Ana.cma$close)
+    for (i in 1:TS.n) {
+      k = as.numeric(TS.ind[i])
+      temp = as.data.frame(Ana.cma[["close"]] [[k]] [kth])
+      colnames(temp)[1] = "cma_dist"
+      temp$TS.ind = as.numeric(TS.ind[i])
+      temp$FS.ind = as.numeric(row.names(temp))
+      temp$TS.ent = TS[i,1]
+      temp$TS.lon = TS[i,2]
+      temp$TS.lat = TS[i,3]
+      temp$TS.alt = TS[i,4]
+      temp$TS.age = TS[i,5]
+      Close.dat = rbind(Close.dat, temp)
+    }
+    rm(k, temp)
+
+  Close.dat = Close.dat[-1, ]
+  row.names(Close.dat) = seq(nrow(Close.dat)) # get rid of the useless row.names with NAs
+  
+
+  
+  FS.ind = row.names(FS)            # list to find the samples back
+  for (i in 1:nrow(Close.dat)) {
+    k = Close.dat$FS.ind[i]
+    Close.dat$FS.ent [i] = FS[k,1]
+    Close.dat$FS.lon [i] = FS[k,2]
+    Close.dat$FS.lat [i] = FS[k,3]
+    Close.dat$FS.alt [i] = FS[k,4]
+    Close.dat$FS.age [i] = FS[k,5]
+  }
+  
+#   ## Gets the geogr distance between each TS assemblage and the closest FS assemblage
+    FS.geo = Close.dat[ ,c(10:11)]
+    TS.geo = Close.dat[ ,c(5:6)]
+    dist = distMeeus(TS.geo, FS.geo, a=6378137, f=1/298.257223563) / 1000
+    Close.dat$km = dist
+    Close.dat$vel = dist / (Close.dat$TS.age - Close.dat$FS.age)
+    
+    Close.all = rbind(Close.all, Close.dat)
+    
+    rm(dist)
+    
+  }
+  
+
+}
+
+# Clean Environment
+rm(TS.Age, FS.forTS, nFS.forTS, FS.Age, Close.dat, Ana.cma, FS, FS.geo, TS, TS.geo, FS.ind, i, k, m, nrow.TS, t)
+
+if(equal.sites == T) {
+ rm(all.sites, join.sites)
+} else { }
+
+# Write csv file with the results of the Analogue Matching
+write.csv(Close.all, paste(data.output.dir,"All_closest_analogs.csv", sep=''), row.names=F,quote=F)
+```
+
+
+# Prepares data for plots
+
+### Modifies the ./All_closest_analogs.csv data to make plots and maps ####
+
+Loads number of observations in each AgeBin
+```{r}
+  n.obs = read.csv(file=paste(data.output.dir,"n_obs_AgeBins.csv",sep=""), header=T)
+  
+  if(equal.sites == T) {
+    bins.used <- read.csv(file=paste(data.output.dir,"bins_used.csv", sep=''))
+  } else { }
+```
+
+### Loads the All_closest_analogs.csv file
+```{r}
+Close.all <- read.csv(file=paste(data.output.dir,"All_closest_analogs.csv", sep=''), header=T)
+
+# Calculates Age.diff = age difference between baseline and target sets
+Close.all$Age.diff = Close.all$TS.age - Close.all$FS.age
+```
+
+### Calculates percentiles and other stats for Median Rate-of-change (RoC) between consecutive AgeBins within records
+```{r}
+quant.cd = as.data.frame(sapply(rofc_geo[ ,5:ncol(rofc_geo)], quantile, na.rm=TRUE))
+quant.cd = as.data.frame(t(quant.cd))
+quant.cd$Age <- as.numeric(rownames(quant.cd))
+
+max.cd = as.data.frame(sapply(rofc_geo[ ,5:ncol(rofc_geo)], max, na.rm=TRUE))
+colnames(max.cd) = "maxcd"
+max.cd$Age <- as.numeric(rownames(max.cd))
+
+mediancd = as.data.frame(sapply(rofc_geo[ ,5:ncol(rofc_geo)], median, na.rm=TRUE))
+colnames(mediancd) = "mediancd"
+mediancd$Age <- as.numeric(rownames(mediancd))
+
+meancd = as.data.frame(sapply(rofc_geo[ ,5:ncol(rofc_geo)], mean, na.rm=TRUE))
+colnames(meancd) = "meancd"
+meancd$Age <- as.numeric(rownames(meancd))
+```
+
+### Gets % of records having RoC > percentiles of RoC values distribution
+```{r}
+cd.q95 = quantile(rofc_geo[ ,c(5:ncol(rofc_geo))], probs=0.95, na.rm=T) # cutoff for top 5% percentile
+cd.q75 = quantile(rofc_geo[ ,c(5:ncol(rofc_geo))], probs=0.75, na.rm=T) # cutoff for top 25% percentile
+
+n.cd = nrow(rofc_geo)
+n = apply(rofc_geo[ ,5:ncol(rofc_geo)], 2, function(x) length(x[complete.cases(x)])) # number of values (excl NAs)
+n.na = apply(rofc_geo[ ,5:ncol(rofc_geo)], 2, function(x) length(x[x=="NA"]))        # number of NA values
+
+n.q95 = apply(rofc_geo[ ,5:ncol(rofc_geo)], 2, function(x) length(x[x>cd.q95])) # number of cd>q95
+n.q95 = n.q95 - n.na
+n.q75 = apply(rofc_geo[ ,5:ncol(rofc_geo)], 2, function(x) length(x[x>cd.q75]))
+n.q75 = n.q75 - n.na
+
+f.q95 = 100*(n.q95/n)
+f.q75 = 100*(n.q75/n)
+
+myTS = seq(from=500, to=end.Bin.out-500, by=500)
+x.lim = rev(range(myTS))
+
+plot(myTS, f.q75, type="o", xlim=rev(range(myTS)), ylim=c(0,50), col="blue")
+lines(myTS, f.q95)
+
+rm(max.cd)
+```
+
+### Prepares simple RoC time-series plots, to be compared with Huntley (1990) and with Seddon et al. (2015)
+```{r, echo=FALSE}
+pdf(file.path(plots.output.dir, "Mean_RoC_TSsubsetFS.pdf"))
+plot(meancd$Age-250, meancd$meancd, type="s", xlim=range(meancd$Age),
+     ylab="mean CD", xlab="Age (cal yrs BP)", axes=F, col="blue", lwd=2)
+abline(v=c(14642, 12846, 11653))
+axis(2, ylim=c(0,0.15))
+axis(1, xaxp=c(15000, 0, 15), labels=T)
+dev.off()
+
+pdf(file.path(plots.output.dir, "Median_RoC_TSsubsetFS.pdf"))
+plot(mediancd$Age-250, mediancd$mediancd, type="s", xlim=range(mediancd$Age),
+     ylab="median CD", xlab="Age (cal yrs BP)", axes=F, col="blue", lwd=2)
+abline(v=c(14642, 12846, 11653))
+axis(2, ylim=c(0,0.1))
+axis(1, xaxp=c(15000, 0, 15), labels=T)
+dev.off()
+
+rm(meancd, mediancd)
+```
+
+### Makes dot map of sites as a double-check
+```{r}
+require(maps)
+require(mapdata)
+x.geo = c(-11,40)
+y.geo = c(35,75)
+par(mfrow=c(1,1))
+pdf(file.path(plots.output.dir, "Figure_1a.pdf"))
+map(database="world", xlim=x.geo, ylim=y.geo, fill=F, interior=F, col="black")
+points(Close.all$TS.lon, Close.all$TS.lat, pch=19, col="red", cex=0.4)
+dev.off()
+```
+
+
+### Gets median novelty values for TS and FS
+```{r}
+Summary.Dist = aggregate(Close.all[ ,c(1,14:16)],
+                         by=list(TS.Age=Close.all$TS.age, FS.Age=Close.all$FS.age), median)
+  colnames(Summary.Dist) [3:5] = c("med.cma.dist", "med.km", "med.vel")
+```
+
+### Calculates median novelty values for Age.diff = 500 years and for FS.Age = 0 cal BP
+```{r}
+Nov500 = Summary.Dist[which(Summary.Dist$Age.diff == 500), ]
+par(mfrow=c(1,1), mar=c(1,5,0.5,1), oma=c(5,1,1,1), cex=1.0)
+plot(Nov500$TS.Age-250, Nov500$med.cma.dist, type="s",
+     xlim=rev(range(Nov500$TS.Age)), ylab="Median Novelty\nbetween Bins",
+     xlab="Baseline age (cal yr BP)", xaxt="n")
+```
+
+### Calculates frequencies of q95 and q80 percentiles for each Novelty+500 lag
+```{r}
+Nov500lag = Close.all[which(Close.all$Age.diff == 500), ]
+Nov500.q95 = quantile(Nov500lag$cma_dist, probs=0.95, na.rm=T)
+Nov500.q75 = quantile(Nov500lag$cma_dist, probs=0.75, na.rm=T)
+
+Nov500.quant.nov = aggregate(Nov500lag[ ,1],
+               by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age),
+               FUN=function(x) quantile(x, probs=c(0, 0.25, 0.5, 0.75, 1)))
+
+Nov500.quant.km = aggregate(Nov500lag[ ,14],
+                             by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age),
+                             FUN=function(x) quantile(x, probs=c(0, 0.25, 0.5, 0.75, 1)))
+
+Nov500.quant.vel = aggregate(Nov500lag[ ,15],
+                            by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age),
+                            FUN=function(x) quantile(x, probs=c(0, 0.25, 0.5, 0.75, 1)))
+
+
+Nov500.n = aggregate(Nov500lag[ ,1],
+                        by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age), FUN=function(x) length(x))
+  colnames(Nov500.n) [3] = "n"
+Nov500.max = aggregate(Nov500lag[ ,1],
+                       by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age), FUN=function(x) max(x))
+  colnames(Nov500.max) [3] = "max"  
+Nov500.nq75 = aggregate(Nov500lag[ ,1],
+                        by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age), FUN=function(x) length(x[x>Nov500.q75]))
+  colnames(Nov500.nq75) [3] = "nq75"
+Nov500.nq95 = aggregate(Nov500lag[ ,1],
+                       by=list(TS.Age=Nov500lag$TS.age, FS.Age=Nov500lag$FS.age), FUN=function(x) length(x[x>Nov500.q95]))
+  colnames(Nov500.nq95) [3] = "nq95"
+Nov500.q = cbind(Nov500.nq95, Nov500.nq75$nq75, Nov500.n$n)
+  colnames(Nov500.q) [4:5] = c("nq75", "n")
+
+Nov500.q$fq95 = (Nov500.q$nq95 / Nov500.q$n) * 100
+Nov500.q$fq75 = (Nov500.q$nq75 / Nov500.q$n) * 100
+
+rm(n.cd, n.na, n.q75, n.q95, Nov500.max, Nov500.n, Nov500.nq75, Nov500.nq95)
+```
+
+
+### Makes plots of CD between age bins and novelty between consecutive age bins WITH % Upper percentiles
+```{r, echo = FALSE}
+x.lim = c(end.Bin.out, 0)
+pdf(file.path(plots.output.dir, "Figure_2_Diagnostic.pdf"))
+par(mfrow=c(7,1), mar=c(1,5,0.5,1), oma=c(5,1,1,1), cex=0.7)
+
+plot(ngrip$Age-50, ngrip$d18O, type="l", axes=F, xlim=x.lim,
+     ylim=c(-43,-34), ylab="NGRIP\nd18O")
+axis(2, ylim=c(-43,-34))
+axis(1, xaxp=c(15000, 0, 15), labels=F)
+abline(v=c(14642, 12846, 11653))
+mtext("a)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.7)
+
+y.lim=c(min(quant.cd$`25%`), max(quant.cd$`50%`*1.2))
+plot(0,0, type='n', xlim=x.lim, ylim=y.lim, ylab=paste("RoC",RoC.method,sep=''), axes=F, cex=1)
+polygon(c(quant.cd$Age, rev(quant.cd$Age)), c(quant.cd$`25%`, rev(quant.cd$`75%`)), col="skyblue", border=NA)
+lines(quant.cd$Age-250, quant.cd$`50%`, type="s", xlim=x.lim,
+      xlab="")
+axis(1, xaxp=c(15000, 0, 15), labels=F)
+axis(2, ylim=c(0,3))
+abline(v=c(14642, 12846, 11653))
+mtext("b)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.8)
+mtext(text=paste("ymax=",round(max(quant.cd$`75%`), digits=2)), cex=0.8, line=-1)
+
+plot(myTS-250, f.q75, type="s", xlim=x.lim, ylab="% sites RoC\n>nth percentile", col="red", 
+     ylim=c(0,50), xaxp=c(15000, 0, 15), axes=F)
+axis(2, ylim=c(0,50), col="red")
+par(new=T)
+plot(myTS-250, f.q95, type="s", xlim=x.lim, xaxt="n", col="blue", axes=F, ylab="", ylim=c(0,25))
+axis(4, ylim=c(0,25), col="blue")
+axis(1, xlim=x.lim, xaxp=c(15000, 0, 15), labels=F)
+abline(v=c(14642, 12846, 11653))
+mtext("c)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.8)
+mtext(paste("75th percentile =", round(cd.q75, digits=3)), padj=-1, line=-15, side=2, las=1, cex=0.7, col="red")
+mtext(paste("95th percentile =", round(cd.q95, digits=3)), padj=-3, line=-15, side=2, las=1, cex=0.7, col="blue")
+
+if(nov.method != "chord") {
+  y.lim=c(min(Nov500.quant.nov$x[,2]), max(Nov500.quant.nov$x[,4]))
+}
+
+plot(0,0, type='n', xlim=x.lim, ylim=y.lim, ylab="Novelty\nbetween Bins", axes=F, cex=1)
+polygon(c(Nov500.quant.nov$TS.Age, rev(Nov500.quant.nov$TS.Age)), c(Nov500.quant.nov$x[,2], rev(Nov500.quant.nov$x[,4])), col="skyblue", border=NA)
+lines(Nov500$TS.Age-250, Nov500$med.cma.dist, type="s", xlim=x.lim,
+     xaxp=c(15000, 0, 15))
+axis(2)
+axis(1, xlim=x.lim, xaxp=c(15000, 0, 15), labels=F)
+mtext("d)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.8)
+
+plot(Nov500.q$TS.Age-250, Nov500.q$fq75, type="s", xlim=x.lim,
+     ylab="% sites Novelty\n>nth percentile", col="red", xaxp=c(15000, 0, 15), ylim=c(0,50), axes=F)
+axis(2, col="red")
+par(new=T)
+plot(Nov500.q$TS.Age-250, Nov500.q$fq95, type="s", xlim=x.lim,
+    col="blue", xaxp=c(15000, 0, 15), axes=F, ylab="", ylim=c(0,20))
+axis(4, ylim=c(0,40), col="blue")
+axis(1, xlim=x.lim, xaxp=c(15000, 0, 15), labels=F)
+mtext("e)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.8)
+mtext(paste("75th percentile =", round(Nov500.q75, digits=3)), padj=-1, line=-15, side=2, las=1, cex=0.7, col="red")
+mtext(paste("95th percentile =", round(Nov500.q95, digits=3)), padj=-3, line=-15, side=2, las=1, cex=0.7, col="blue")
+
+y.lim=c(min(Nov500.quant.km$x[,2]), max(Nov500.quant.km$x[,4]))
+plot(0,0, type='n', xlim=x.lim, ylim=y.lim, ylab="Distance to\nclosest (km)", axes=F, cex=1)
+polygon(c(Nov500.quant.km$TS.Age, rev(Nov500.quant.km$TS.Age)), c(Nov500.quant.km$x[,2], rev(Nov500.quant.km$x[,4])), col="skyblue", border=NA)
+lines(Nov500$TS.Age-250, Nov500.quant.km$x[,3], type="s", xlim=x.lim,
+      xaxp=c(15000, 0, 15))
+axis(2)
+axis(1, xlim=x.lim, xaxp=c(15000, 0, 15), labels=F)
+abline(v=c(14642, 12846, 11653))
+mtext("f)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.8)
+
+# plot(n.obs$Age-250, n.obs$n.obs, type="s", xlim=x.lim,
+#      xaxp=c(15000, 0, 15), axes=F, ylab="Sites\nin Age Bin", ylim=c(0,600))
+# par(new=T)
+plot(bins.used$bins-250, bins.used$n_obs, type="s", xlim=x.lim,
+      xaxp=c(15000, 0, 15), axes=F, ylab="Sites\nin Age Bin", ylim=c(0,max(bins.used$n_obs)))
+axis(2, ylim=c(0,max(bins.used$n_obs)))
+axis(1, xaxp=c(15000, 0, 15))
+mtext("g)", padj=-1.5, line=-0.7, side=2, las=1, cex=0.8)
+
+mtext(("Baseline age (cal yrs BP)"), side = 1, line = 2.5, cex=1.0)
+
+dev.off()
+```
+
+
+### Makes plots of CD between age bins and novelty between consecutive age bins WITHOUT % Upper percentiles and WITH NGRIP d18O differences
+```{r, echo = FALSE}
+x.lim = c(end.Bin.out, 0)
+pdf(file.path(plots.output.dir, "Figure_2.pdf"), width=3.23, height=4, family="Helvetica")
+par(mfrow=c(6,1), mar=c(1,3.9,0.5,0), oma=c(5,0,0,0), cex.axis=0.6, cex.lab=0.8, lwd=0.7,
+    mgp=c(2, 0.4, 0))
+
+plot(ngrip$Age+50, ngrip$d18O, type="s", axes=F, xlim=x.lim,
+     ylim=c(-43,-34), ylab=expression(paste("NGRIP ", delta,""^"18","O", sep='')), xlab="")
+axis(2, ylim=c(-43,-34), las=2, lwd=0.5, tck=-0.1)
+axis(1, xaxp=c(15000, 0, 15), labels=F, lwd=0.7)
+abline(v=c(14642, 12846, 11653))
+mtext("a)", padj=-2, line=-0.8, side=2, las=1, cex=0.6)
+
+plot(d18O.bin$Age-250, d18O.bin$d18O.diff, type="s", axes=F, xlim=x.lim,
+     ylim=c(0,4), ylab="")
+axis(2, las=2, lwd=0.7, tck=-0.1)
+mtext(expression(paste("Change\nNGRIP ",delta,""^"18","O")), line=1.4, side=2, cex=0.5)
+axis(1, xaxp=c(15000, 0, 15), labels=F, lwd=0.7)
+abline(v=c(14642, 12846, 11653))
+mtext("b)", padj=-2, line=-0.8, side=2, las=1, cex=0.6)
+
+
+y.lim=c(min(quant.cd$`25%`), max(quant.cd$`50%`*1.2))
+plot(0,0, type='n', xlim=x.lim, ylim=y.lim, ylab="RoC\nbetween Bins", axes=F, cex=1)
+polygon(c(quant.cd$Age, rev(quant.cd$Age)), c(quant.cd$`25%`, rev(quant.cd$`75%`)), col="skyblue", border=NA)
+lines(quant.cd$Age-250, quant.cd$`50%`, type="s", xlim=x.lim,
+      xlab="")
+axis(1, xaxp=c(15000, 0, 15), labels=F, lwd=0.7)
+axis(2, ylim=c(0,3), las=2, lwd=0.7, tck=-0.1)
+abline(v=c(14642, 12846, 11653))
+mtext("c)",padj=-2, line=-0.8, side=2, las=1, cex=0.6)
+mtext(text=paste("ymax=",round(max(quant.cd$`75%`), digits=2)), cex=0.5, line=-1)
+
+if(nov.method != "chord") {
+  y.lim=c(min(Nov500.quant.nov$x[,2]), max(Nov500.quant.nov$x[,4]))
+}
+
+plot(0,0, type='n', xlim=x.lim, ylim=y.lim, ylab="Novelty\nbetween Bins", axes=F, cex=1)
+polygon(c(Nov500.quant.nov$TS.Age, rev(Nov500.quant.nov$TS.Age)), c(Nov500.quant.nov$x[,2], rev(Nov500.quant.nov$x[,4])), col="skyblue", border=NA)
+lines(Nov500$TS.Age-250, Nov500.quant.nov$x[,3], type="s", xlim=x.lim,
+      xaxp=c(15000, 0, 15))
+axis(2, las=2, lwd=0.7, tck=-0.1)
+axis(1, xlim=x.lim, xaxp=c(15000, 0, 15), labels=F, lwd=0.7)
+abline(v=c(14642, 12846, 11653))
+mtext("d)", padj=-2, line=-0.8, side=2, las=1, cex=0.6)
+
+y.lim=c(min(Nov500.quant.km$x[,2]), max(Nov500.quant.km$x[,4]))
+plot(0,0, type='n', xlim=x.lim, ylim=y.lim, ylab="Distance to\nclosest (km)", axes=F, cex=1)
+polygon(c(Nov500.quant.km$TS.Age, rev(Nov500.quant.km$TS.Age)), c(Nov500.quant.km$x[,2], rev(Nov500.quant.km$x[,4])), col="skyblue", border=NA)
+lines(Nov500$TS.Age-250, Nov500.quant.km$x[,3], type="s", xlim=x.lim,
+      xaxp=c(15000, 0, 15))
+axis(2, las=2, lwd=0.7, tck=-0.1)
+axis(1, xlim=x.lim, xaxp=c(15000, 0, 15), labels=F, lwd=0.7)
+abline(v=c(14642, 12846, 11653))
+mtext("e)", padj=-2, line=-0.8, side=2, las=1, cex=0.6)
+
+plot(bins.used$bins-250, bins.used$n_obs, type="s", xlim=x.lim,
+     xaxp=c(15000, 0, 15), axes=F, ylab="Sites\nin Age Bin", ylim=c(0,max(bins.used$n_obs)))
+axis(2, ylim=c(0,max(bins.used$n_obs)), las=2, lwd=0.7, tck=-0.1)
+axis(1, xaxp=c(15000, 0, 15), lwd=0.7, cex=0.8)
+abline(v=c(14642, 12846, 11653))
+mtext("f)", padj=-2, line=-0.8, side=2, las=1, cex=0.6)
+
+mtext(("Baseline age (cal yrs BP)"), side = 1, line = 2, cex=0.7)
+
+dev.off()
+```
+
+#### Cleans Environment
+```{r}
+rm(cd.q75, cd.q95, Nov500.q75, Nov500.q95, f.q75, f.q95, Nov500.quant.km)
+```
+
+
+### Calculates change in median novelty for each 500 years steps
+```{r}
+nov.ch = split(Summary.Dist, Summary.Dist$TS.Age) # splits Summary.Dist into List ordered by TS.Age
+n.nov.ch = length(nov.ch)
+nov.change <- lapply(nov.ch, function(x) {     # orders Lists by Age.diff (ascending) and adds a dummy variable
+  x <- x[order(x$Age.diff), ]
+  transform(x,
+            dumm = med.cma.dist - med.cma.dist[1])
+  })
+
+# stepwise novelty change excl first step
+# dummy stepwise change to calculate cumsum of stepwise change
+  for (i in 1:n.nov.ch) {
+    nov.change[[i]] [["step.change"]] = c(NA, diff(nov.change [[i]] [["med.cma.dist"]] )) 
+    nov.change[[i]] [["dumm.change"]] = c(0, diff(nov.change [[i]] [["med.cma.dist"]] )) 
+  }
+
+  for (i in 1:n.nov.ch) {
+    nov.change[[i]] [["nov.cumsum"]] = cumsum(nov.change [[i]] [["med.cma.dist"]] ) # cumsum of median novelty change
+  }
+
+nov.change = do.call(rbind, nov.change)
+nov.change <- nov.change[ ,-c(7,9)]  # deletes columns "dumm" and "dumm.change"
+Summary.Dist = nov.change
+rm(nov.change, nov.ch)
+```
+
+
+### Sets variables used for Trellis plots
+```{r}
+x.lim = c(end.Bin.out, 0) # will be used later for plots
+x.lim10k = c(10000, 0)
+x.tcks = seq(from=max(x.lim), to=min(x.lim), by=-1000)
+h.lines = c(12846, 11653)
+myPal = viridis(1000, option="C") # defines the color scheme
+n_Pal = 100
+```
+
+### Summary Trellis plots for forward modelling with equal x-y axes
+```{r}
+plot.dat = Summary.Dist
+max.dat = max(plot.dat$med.vel)
+min.dat = min(plot.dat$med.vel)
+pdf(file.path(plots.output.dir, "Figure_5d.pdf"))
+l.1 <- levelplot(med.vel ~ FS.Age*TS.Age, data = plot.dat,
+          xlab = "Target Age (cal yr BP)", ylab = "Baseline age (cal yr BP)",
+          main = "Median displacement velocity (km/yr)\nto closest analogue in target", xlim=x.lim-250, ylim=x.lim+250,
+          col.regions = rev(myPal), at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+          scales=list(tick.number=15),
+          panel = function(..., at, contour, region, col.regions, scales) {
+            panel.levelplot(..., at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                            contour=F, region=T, col.regions = rev(myPal), scales=list(tick.number=15))
+            panel.contourplot(..., at=seq(length.out=9, from=min.dat, to=max.dat),
+                              contour=T, region=F)
+            panel.abline(h = h.lines, col = "white")
+          })
+plot(l.1)
+dev.off()
+
+plot.dat = Summary.Dist
+max.dat = max(plot.dat$med.km)
+min.dat = min(plot.dat$med.km)
+pdf(file.path(plots.output.dir, "Figure_5c.pdf"))
+l.2 <- levelplot(med.km ~ FS.Age*TS.Age, data = plot.dat,
+          xlab = "Target Age (cal yr BP)", ylab = "Baseline age (cal yr BP)",
+          main = "Median displacement distance (km)\nto closest analogue in target", xlim=x.lim-250, ylim=x.lim+250,
+          col.regions = rev(myPal), at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+          scales=list(tick.number=15),
+          panel = function(..., at, contour, region, col.regions, scales) {
+            panel.levelplot(..., at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                            contour=F, region=T, col.regions = rev(myPal), scales=list(tick.number=15))
+            panel.contourplot(..., at=seq(length.out=9, from=min.dat, to=max.dat),
+                              contour=T, region=F)
+            panel.abline(h = h.lines, col = "white")
+          })
+plot(l.2)
+dev.off()
+
+
+plot.dat = Summary.Dist
+max.dat = max(plot.dat$med.cma.dist)
+min.dat = min(plot.dat$med.cma.dist)
+pdf(file.path(plots.output.dir, "Figure_5a.pdf"))
+l.3 <- levelplot(med.cma.dist ~ FS.Age*TS.Age, data = plot.dat,
+          xlab = "Target Age (cal yr BP)", ylab = "Baseline age (cal yr BP)",
+          main = "Median Novelty\nCD to closest analogue in target", xlim=x.lim-250, ylim=x.lim+250,
+          col.regions = rev(myPal), at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+          scales=list(tick.number=15),
+          panel = function(..., at, contour, region, col.regions, scales) {
+            panel.levelplot(..., at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                            contour=F, region=T, col.regions = rev(myPal), scales=list(tick.number=15))
+            panel.contourplot(..., at=seq(length.out=14, from=min.dat, to=max.dat),
+                              contour=T, region=F)
+            panel.abline(h = h.lines, col = "white")
+          })
+plot(l.3)
+dev.off()
+
+
+# Changes the color scheme: adds a jump in the color scale around novelty change = 0
+plot.dat = Summary.Dist[-which(Summary.Dist$Age.diff == 500), ]
+max.dat = max(plot.dat$step.change, na.rm=T)
+min.dat = min(plot.dat$step.change, na.rm=T)
+ch <- seq(min.dat, max.dat, length.out = length(myPal))
+ch.abs <- abs(ch)
+min.ch <- min(ch.abs)
+
+min.ch.10 <- (max.dat + abs(min.dat)) * 0.05
+min.ch.up <- which(ch > (0 + min.ch.10))
+min.ch.low <- which(ch < (0 - min.ch.10))
+zero.ch.up <- length(myPal) - length(min.ch.up)
+zero.ch.bot <- length(min.ch.low)
+
+## Check locations of cutoff values
+# plot(ch.abs, type="s")
+# abline(v=c(zero.ch.up, zero.ch.bot), h=min.ch.10)
+
+if (zero.ch.up || zero.ch.bot > 0) {
+
+  # If only very small positive changes between target sets 
+  if (zero.ch.up > length(myPal)) {
+    zero.ch.up <- (length(myPal) - which(ch==min.ch))
+    }
+
+  # If only very small negative changes between target sets
+  if (zero.ch.bot <= 0) {
+    myPal.up <- viridis(n=length(myPal)-zero.ch.up, begin=0, end=0.55, option="C")
+    myPal.mid <- viridis(n=length(myPal)-length(myPal.up), begin=0.65, end=0.75, option="C")
+    myPal.change2 <- c(myPal.up, myPal.mid)
+  
+  } else {
+    myPal.up <- viridis(n=length(myPal)-zero.ch.up, begin=0, end=0.55, option="C")
+    myPal.bot <- viridis(n=zero.ch.bot, begin=0.85, end=1, option="C")
+    myPal.mid <- viridis(n=length(myPal)-length(myPal.up)-length(myPal.bot), begin=0.65, end=0.75, option="C")
+    myPal.change2 <- c(myPal.up, myPal.mid, myPal.bot)
+    }
+
+  pdf(file.path(plots.output.dir, "Figure_5b.pdf"))
+  l.5 <- levelplot(step.change ~ FS.Age*TS.Age, data = plot.dat,
+                 xlab = "Target Age (cal yr BP)", ylab = "Baseline age (cal yr BP)",
+                 main = "Change of median Novelty\nper 500 years steps", xlim=x.lim-250, ylim=x.lim+250,
+                 col.regions = rev(myPal.change2), at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                 scales=list(tick.number=15),
+                 panel = function(..., at, contour, region, col.regions, scales) {
+                   panel.levelplot(..., at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                                   contour=F, region=T, col.regions=rev(myPal.change2), scales=list(tick.number=15))
+                   panel.contourplot(..., at=seq(length.out=9, from=min.dat, to=max.dat),
+                                     contour=T, region=F)
+                   panel.abline(h = h.lines, v = h.lines, col = "white")
+                 })
+  plot(l.5)
+  dev.off()
+
+  rm(l.5)
+  
+} else { }
+
+## Calculates % sites in TS having cma distance > than 95th percentile of all cma distances
+cma.max <- max(Close.all$cma_dist)
+thresh <- 0.95
+cma.thresh <- quantile(Close.all$cma_dist, probs=thresh)
+n.cma <- count_(Close.all[which(Close.all$cma_dist >= cma.thresh), ], vars=c("TS.age", "FS.age"))
+n.cma <- merge(x=n.cma, y=bins.used, by.x="TS.age", by.y="bins")
+n.cma$perc <- (n.cma$n/n.cma$n_obs) * 100
+
+plot.dat = n.cma
+min.dat = min(n.cma$perc)
+max.dat = max(n.cma$perc)
+pdf(file.path(plots.output.dir, "Figure_S12a.pdf"))
+l.7 <- levelplot(perc ~ FS.age*TS.age, data = n.cma,
+                 xlab = "Target Age (cal yr BP)", ylab = "Baseline age (cal yr BP)",
+                 main = paste("Percentage_sites\nnovelty >",thresh*100,"th percentile (=",round(cma.thresh, digits=3),")", sep=''),
+                 cex=0.8, xlim=x.lim-250, ylim=x.lim+250,
+                 col.regions = rev(myPal), at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                 scales=list(tick.number=15),
+                 panel = function(..., at, contour, region, col.regions, scales) {
+                   panel.levelplot(..., at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                                   contour=F, region=T, col.regions = rev(myPal), scales=list(tick.number=15))
+                   panel.contourplot(..., at=seq(length.out=9, from=min.dat, to=max.dat),
+                                     contour=T, region=F)
+                   panel.abline(h = h.lines, col = "white")
+                 })
+plot(l.7)
+dev.off()
+
+## Calculates % sites in TS having cma distance > than 75th percentile of all cma distances
+cma.max <- max(Close.all$cma_dist)
+thresh <- 0.75
+cma.thresh <- quantile(Close.all$cma_dist, probs=thresh)
+n.cma <- count_(Close.all[which(Close.all$cma_dist >= cma.thresh), ], vars=c("TS.age", "FS.age"))
+n.cma <- merge(x=n.cma, y=bins.used, by.x="TS.age", by.y="bins")
+n.cma$perc <- (n.cma$n/n.cma$n_obs) * 100
+
+plot.dat = n.cma
+min.dat = min(n.cma$perc)
+max.dat = max(n.cma$perc)
+pdf(file.path(plots.output.dir, "Figure_S12b.pdf"))
+l.8 <- levelplot(perc ~ FS.age*TS.age, data = n.cma,
+                 xlab = "Target Age (cal yr BP)", ylab = "Baseline age (cal yr BP)",
+                 main = paste("Percentage_sites\nnovelty >",thresh*100,"th percentile (=",round(cma.thresh, digits=3),")", sep=''),
+                 cex=0.8, xlim=x.lim-250, ylim=x.lim+250,
+                 col.regions = rev(myPal), at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                 scales=list(tick.number=15),
+                 panel = function(..., at, contour, region, col.regions, scales) {
+                   panel.levelplot(..., at=seq(length.out=n_Pal, from=min.dat, to=max.dat),
+                                   contour=F, region=T, col.regions = rev(myPal), scales=list(tick.number=15))
+                   panel.contourplot(..., at=seq(length.out=9, from=min.dat, to=max.dat),
+                                     contour=T, region=F)
+                   panel.abline(h = h.lines, col = "white")
+                 })
+plot(l.8)
+dev.off()
+
+rm(l.7, l.8)
+
+
+rm(l.1, l.2, l.3)
+
+rm(myPal, n_Pal, h.lines, x.lim10k, x.tcks)
+```
+
+
+### Write output files to output.dir for further use with other scripts
+```{r}
+write.csv(d18O.bin, file=paste(data.output.dir,"d18O_bin.csv", sep=''))
+write.csv(rofc_geo, file=paste(data.output.dir,"rofc_geo.csv", sep=''))
+write.csv(Nov500, file=paste(data.output.dir,"Nov500.csv", sep=''))
+write.csv(Nov500lag, file=paste(data.output.dir,"Nov500lag.csv", sep=''))
+
+rm(d18O.bin, rofc_geo, Nov500, Nov500lag)
+```
+
